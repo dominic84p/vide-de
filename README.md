@@ -11,6 +11,37 @@ It's built on [Smithay](https://github.com/Smithay/smithay), a library of
 compositor building blocks. The window manager, input handling, rendering,
 taskbar, start menu and titlebars are all our own code.
 
+## See it in action
+
+<p align="center">
+  <a href="docs/public/demo/vide-de-demo.mp4" title="Watch the full one-minute tour (MP4)">
+    <img src="docs/public/demo/vide-de-demo-preview.gif" alt="A tour of VIDE-DE: the Start menu, PowerSlop, Task Mangler, File Exploder, Settings and About" width="720">
+  </a>
+  <br>
+  <sub>3x speed preview. <a href="docs/public/demo/vide-de-demo.mp4">Watch the full one-minute tour</a> (MP4).</sub>
+</p>
+
+<table>
+  <tr>
+    <td width="33%"><a href="docs/src/assets/screenshots/desktop.png"><img src="docs/src/assets/screenshots/desktop.png" alt="The VIDE-DE desktop"></a><br><sub><b>Desktop</b></sub></td>
+    <td width="33%"><a href="docs/src/assets/screenshots/start-menu.png"><img src="docs/src/assets/screenshots/start-menu.png" alt="The Start menu"></a><br><sub><b>Start menu</b></sub></td>
+    <td width="33%"><a href="docs/src/assets/screenshots/snapped.png"><img src="docs/src/assets/screenshots/snapped.png" alt="PowerSlop and File Exploder snapped side by side"></a><br><sub><b>Window snapping</b></sub></td>
+  </tr>
+  <tr>
+    <td><a href="docs/src/assets/screenshots/powerslop.png"><img src="docs/src/assets/screenshots/powerslop.png" alt="PowerSlop, the terminal"></a><br><sub><b>PowerSlop</b></sub></td>
+    <td><a href="docs/src/assets/screenshots/file-exploder.png"><img src="docs/src/assets/screenshots/file-exploder.png" alt="File Exploder, the file manager"></a><br><sub><b>File Exploder</b></sub></td>
+    <td><a href="docs/src/assets/screenshots/task-mangler.png"><img src="docs/src/assets/screenshots/task-mangler.png" alt="Task Mangler showing CPU performance"></a><br><sub><b>Task Mangler</b></sub></td>
+  </tr>
+  <tr>
+    <td><a href="docs/src/assets/screenshots/settings.png"><img src="docs/src/assets/screenshots/settings.png" alt="Settings, Personalization, Background"></a><br><sub><b>Settings</b></sub></td>
+    <td><a href="docs/src/assets/screenshots/snip.png"><img src="docs/src/assets/screenshots/snip.png" alt="Snip &amp; Sketchy with a snip open"></a><br><sub><b>Snip &amp; Sketchy</b></sub></td>
+    <td><a href="docs/src/assets/screenshots/about.png"><img src="docs/src/assets/screenshots/about.png" alt="About VIDE-DE"></a><br><sub><b>About VIDE-DE</b></sub></td>
+  </tr>
+</table>
+
+<sub>Captured from the nested backend in a headless virtual display with software rendering, so it shows
+layout and behavior, not GPU performance. More on the [docs site](https://dominic84p.github.io/vide-de/getting-started/screenshots/).</sub>
+
 ## What it does
 
 - **Runs on real hardware** from a TTY (DRM/KMS, libinput, libseat), or

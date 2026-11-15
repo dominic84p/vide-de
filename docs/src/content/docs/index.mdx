@@ -25,6 +25,7 @@ import { CardGrid, LinkCard } from '@astrojs/starlight/components';
 import '../../styles/home.css';
 import FeatureCard from '../../components/FeatureCard.astro';
 import HomeSections from '../../components/HomeSections.astro';
+import DemoShowcase from '../../components/DemoShowcase.astro';
 import {
   Bot,
   Ruler,
@@ -51,6 +52,16 @@ import {
   <li><strong>2</strong><span>backends: nested &amp; TTY</span></li>
   <li><strong>100%</strong><span>AI-written code</span></li>
 </ul>
+
+## See It in Action
+
+<DemoShowcase limit={6} />
+
+<LinkCard
+  title="Video tour and all screenshots"
+  description="A one-minute walkthrough, plus every built-in app"
+  href="/vide-de/getting-started/screenshots/"
+/>
 
 ## AI-Only Project
 

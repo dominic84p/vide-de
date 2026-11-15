@@ -1,0 +1,36 @@
+---
+title: 'Screenshots & Demo'
+description: 'A one-minute video tour and screenshots of the VIDE-DE desktop, Start menu and built-in apps.'
+---
+
+import DemoShowcase from '../../../components/DemoShowcase.astro';
+
+A quick look at VIDE-DE before you build it. The video is a one-minute tour, and the
+screenshots below show the desktop and each built-in app.
+
+## Video tour
+
+<DemoShowcase part="video" />
+
+The tour covers:
+
+- The desktop right-click menu and the Start menu tiles
+- PowerSlop running a few commands (`ls`, `cat`, `uname`, `free`)
+- Task Mangler's Performance view, opened with <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Esc</kbd>
+- File Exploder browsing folders
+- Settings → Personalization → Background, switching wallpapers
+- The About page
+
+## Screenshots
+
+<DemoShowcase part="shots" />
+
+Click a screenshot to open it at full size. Each app has its own section, with more detail, on the
+[Built-in Apps](/vide-de/wiki/built-in-apps/) page, and every shortcut is listed under
+[Keybindings](/vide-de/reference/keybindings/).
+
+:::note
+The video and screenshots were captured from the nested backend (`vibe-comp --nested`) in a headless
+virtual display with software rendering, so they show layout and behavior but say nothing about
+GPU performance or smoothness. See [Installation](/vide-de/getting-started/installation/) to run it yourself.
+:::

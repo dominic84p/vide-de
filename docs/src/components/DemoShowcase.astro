@@ -1,0 +1,194 @@
+---
+import { Image } from 'astro:assets';
+import desktop from '../assets/screenshots/desktop.png';
+import startMenu from '../assets/screenshots/start-menu.png';
+import snapped from '../assets/screenshots/snapped.png';
+import powerslop from '../assets/screenshots/powerslop.png';
+import fileExploder from '../assets/screenshots/file-exploder.png';
+import taskMangler from '../assets/screenshots/task-mangler.png';
+import settings from '../assets/screenshots/settings.png';
+import snip from '../assets/screenshots/snip.png';
+import about from '../assets/screenshots/about.png';
+
+interface Props {
+  /** 'all' (default), 'video' for just the tour video, or 'shots' for just the gallery. */
+  part?: 'all' | 'video' | 'shots';
+  /** Show only the first N screenshots (the homepage uses a teaser). */
+  limit?: number;
+}
+const { part = 'all', limit } = Astro.props;
+
+// The site is served under a base path, and files in public/ are not rewritten for us.
+const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+const videoSrc = `${base}/demo/vide-de-demo.mp4`;
+
+const shots = [
+  {
+    img: desktop,
+    title: 'Desktop',
+    alt: 'The VIDE-DE desktop with the default blue wallpaper, a Recycle Bin and a text file on the desktop, and the taskbar along the bottom.',
+    text: 'Windoze 10-style desktop: taskbar with Start button, search, Task View, pinned apps and tray, plus your ~/Desktop items.',
+  },
+  {
+    img: startMenu,
+    title: 'Start menu',
+    alt: 'The Start menu open, with pinned app tiles on the right and an A to Z list of installed apps on the left.',
+    text: 'Pinned tiles and an A–Z list of every installed app. Type to search.',
+  },
+  {
+    img: snapped,
+    title: 'Window snapping',
+    alt: 'PowerSlop snapped to the left half of the screen and File Exploder to the right half.',
+    text: 'Drag a window to a screen edge to snap it to half the screen: PowerSlop and File Exploder side by side.',
+  },
+  {
+    img: powerslop,
+    title: 'PowerSlop',
+    alt: 'PowerSlop, a blue terminal window with a banner, a PS prompt and the output of a few commands.',
+    text: 'The built-in terminal: blue, with a banner and a PS> prompt.',
+  },
+  {
+    img: fileExploder,
+    title: 'File Exploder',
+    alt: 'File Exploder showing the home folder with a ribbon, a Quick access sidebar and a file list.',
+    text: 'The file manager: ribbon, Quick access sidebar and the familiar columns.',
+  },
+  {
+    img: taskMangler,
+    title: 'Task Mangler',
+    alt: 'Task Mangler on its Performance tab showing a CPU graph and a list of CPU, memory, disk and network.',
+    text: 'Ctrl+Shift+Esc: live CPU, memory, disk and network performance graphs.',
+  },
+  {
+    img: settings,
+    title: 'Settings',
+    alt: 'Settings on Personalization, Background, with a preview and six wallpapers to choose from.',
+    text: 'Personalization → Background with the six built-in wallpapers.',
+  },
+  {
+    img: snip,
+    title: 'Snip & Sketchy',
+    alt: 'Snip & Sketchy with a snipped region of the About window open and the pen, highlighter, eraser and crop tools in the toolbar.',
+    text: 'Shift+PrtSc or Win+Shift+S snips a region straight into the editor: pens, highlighter, eraser and crop.',
+  },
+  {
+    img: about,
+    title: 'About VIDE-DE',
+    alt: 'The About VIDE-DE window listing device and system specifications.',
+    text: 'Device and system specs, laid out like Windoze 10\u2019s About page.',
+  },
+];
+const shown = limit ? shots.slice(0, limit) : shots;
+---
+
+<div class="vide-demo">
+  {part !== 'shots' && (
+    <figure class="vide-demo-video">
+      <video controls preload="metadata" playsinline poster={desktop.src}>
+        <source src={videoSrc} type="video/mp4" />
+        <p>Your browser can't play this video. <a href={videoSrc}>Download the MP4</a>.</p>
+      </video>
+      <figcaption>
+        A one-minute tour: Start menu, PowerSlop, Task Mangler, File Exploder, Settings and About.
+      </figcaption>
+    </figure>
+  )}
+
+  {part !== 'video' && (
+    <div class="vide-shots">
+      {shown.map((s) => (
+        <figure class="vide-shot">
+          <a href={s.img.src} target="_blank" rel="noopener" aria-label={`Open the ${s.title} screenshot at full size`}>
+            <Image src={s.img} alt={s.alt} width={640} loading="lazy" />
+          </a>
+          <figcaption>
+            <strong>{s.title}</strong>
+            <span>{s.text}</span>
+          </figcaption>
+        </figure>
+      ))}
+    </div>
+  )}
+</div>
+
+<style>
+  .vide-demo {
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+    min-width: 0;
+    margin-top: 1rem;
+  }
+
+  .vide-demo-video,
+  .vide-shot {
+    margin: 0 !important;
+    min-width: 0;
+    overflow: hidden;
+    border: 1px solid var(--sl-color-hairline);
+    border-radius: 0.625rem;
+    background: var(--sl-color-bg-nav);
+  }
+
+  .vide-demo-video video {
+    display: block;
+    width: 100%;
+    height: auto;
+    aspect-ratio: 8 / 5;
+    background: #000;
+  }
+
+  .vide-demo-video figcaption,
+  .vide-shot figcaption {
+    padding: 0.75rem 1rem;
+    font-size: 0.85rem;
+    line-height: 1.5;
+    color: var(--sl-color-gray-3);
+  }
+
+  .vide-shots {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(min(320px, 100%), 1fr));
+    gap: 1rem;
+  }
+
+  .vide-shot {
+    transition: border-color 0.15s ease, transform 0.15s ease;
+  }
+
+  .vide-shot:hover,
+  .vide-shot:focus-within {
+    border-color: var(--sl-color-text-accent);
+    transform: translateY(-2px);
+  }
+
+  .vide-shot a {
+    display: block;
+    line-height: 0;
+  }
+
+  .vide-shot :global(img) {
+    display: block;
+    width: 100%;
+    height: auto;
+    margin: 0 !important;
+  }
+
+  .vide-shot figcaption strong {
+    display: block;
+    margin-bottom: 0.15rem;
+    font-size: 0.9rem;
+    color: var(--sl-color-white);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .vide-shot {
+      transition: none;
+    }
+
+    .vide-shot:hover,
+    .vide-shot:focus-within {
+      transform: none;
+    }
+  }
+</style>
