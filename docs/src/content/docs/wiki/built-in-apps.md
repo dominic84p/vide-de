@@ -41,18 +41,7 @@ GUI for all compositor settings.
 
 ### Screenshot
 
-```
-┌─────────────────────────────────────┐
-│  Settings                    [×]    │
-├─────────────────────────────────────┤
-│ ▸ Mouse          ▸ Display          │
-│ ▸ Wallpaper      ▸ Gaming           │
-│ ▸ Start Menu     ▸ Taskbar          │
-│ ▸ Keyboard       ▸ Theme            │
-├─────────────────────────────────────┤
-│  [Apply]  [Reset]  [Close]          │
-└─────────────────────────────────────┘
-```
+![Settings on Personalization, Background, with a preview and six wallpapers to choose from.](../../../assets/screenshots/settings.png)
 
 ### Config
 
@@ -80,18 +69,7 @@ Terminal emulator styled like Windoze Terminal / PowerSlop.
 
 ### Screenshot
 
-```
-┌────────────────────────────────────────────────┐
-│ PowerSlop  [+] [□] [×]    Tab1  Tab2  [+]     │
-├────────────────────────────────────────────────┤
-│                                                │
-│  Windoze PowerSlop                            │
-│  Copyright (C) Microslop Corporation.         │
-│                                                │
-│  PS C:\Users\user> _                           │
-│                                                │
-└────────────────────────────────────────────────┘
-```
+![PowerSlop, the blue terminal, after running a few commands.](../../../assets/screenshots/powerslop.png)
 
 ### Config
 
@@ -135,19 +113,7 @@ File manager styled like Windoze File Explorer.
 
 ### Screenshot
 
-```
-┌────────────────────────────────────────────────┐
-│ File Exploder  [◀] [▶] [↑] [⟳]  [Address...]   │
-├───────────────┬────────────────────────────────┤
-│ Quick Access  │ Name        │ Type    │ Size   │
-│ This PC       ├─────────────┼─────────┼────────┤
-│   Desktop     │ Documents   │ Folder  │        │
-│   Downloads   │ Pictures    │ Folder  │        │
-│   Documents   │ Music       │ Folder  │        │
-│ Network       │ Videos      │ Folder  │        │
-│               │ file.txt    │ Text    │ 1.2 KB │
-└───────────────┴────────────────────────────────┘
-```
+![File Exploder showing the home folder, with the ribbon and Quick access sidebar.](../../../assets/screenshots/file-exploder.png)
 
 ---
 
@@ -170,19 +136,7 @@ Process/performance monitor styled like Windoze Task Manager.
 
 ### Screenshot
 
-```
-┌────────────────────────────────────────────────┐
-│ Task Mangler  [Processes] [Performance] [Startup]│
-├────────────────────────────────────────────────┤
-│  [Search...]                     [End Task]    │
-├──────────────┬─────┬──────┬────────┬───────────┤
-│ Name         │ PID │ CPU% │ Memory │ Status    │
-├──────────────┼─────┼──────┼────────┼───────────┤
-│ firefox      │ 1234│ 12.5%│ 1.2 GB │ Running   │
-│ code         │ 5678│ 5.2% │ 800 MB │ Running   │
-│ vibe-comp    │ 999 │ 2.1% │ 150 MB │ Running   │
-└──────────────┴─────┴──────┴────────┴───────────┘
-```
+![Task Mangler on its Performance tab, with live CPU, memory, disk and network.](../../../assets/screenshots/task-mangler.png)
 
 ---
 
@@ -229,17 +183,7 @@ User marks up → Save/Copy/Share
 
 ### Screenshot
 
-```
-┌────────────────────────────────────────────────┐
-│ Snip & Sketchy [Pen] [Mark] [Erase] [O] [□] [T] [Crop] │
-├────────────────────────────────────────────────┤
-│                                                │
-│   [Screenshot with annotations]               │
-│                                                │
-├────────────────────────────────────────────────┤
-│  [Save]  [Copy]  [Share]  [Undo]  [Redo]      │
-└────────────────────────────────────────────────┘
-```
+![Snip & Sketchy with a snipped region open and the pen, highlighter, eraser and crop tools.](../../../assets/screenshots/snip.png)
 
 ---
 
@@ -259,25 +203,7 @@ System information viewer using `fastfetch` backend.
 
 ### Screenshot
 
-```
-┌────────────────────────────────────────────────┐
-│ About VIDE-DE                          [×]     │
-├────────────────────────────────────────────────┤
-│                                                │
-│        VIDE-DE v0.1.0                         │
-│        Smithay 0.7                            │
-│                                                │
-│  OS: Arch Linux x86_64                        │
-│  Kernel: 6.10.2-arch1-1                       │
-│  Uptime: 2h 34m                               │
-│                                                │
-│  CPU: AMD Ryzen 7 5800X (16) @ 4.7GHz         │
-│  GPU: NVIDIA RTX 3080                         │
-│  Memory: 16.2 GiB / 31.4 GiB                  │
-│                                                │
-│  [Copy to Clipboard]  [Close]                  │
-└────────────────────────────────────────────────┘
-```
+![The About VIDE-DE window with device and system specifications.](../../../assets/screenshots/about.png)
 
 ---
 
