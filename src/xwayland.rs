@@ -69,6 +69,7 @@ fn spawn(handle: &LoopHandle<'static, State>, state: &mut State, first: bool) {
                 state.xwm = Some(wm);
                 state.xdisplay = Some(display_number);
                 state.xwayland_pid = client.get_credentials(&state.dh).ok().map(|c| c.pid as u32);
+                state.clipboard_offer_to_x11();
                 if !first {
                     // A new server may have a new display number; D-Bus-activated apps need it too.
                     state.spawn("dbus-update-activation-environment --systemd DISPLAY 2>/dev/null || dbus-update-activation-environment DISPLAY");
@@ -362,8 +363,18 @@ impl XwmHandler for State {
         }
     }
 
-    fn allow_selection_access(&mut self, _xwm: XwmId, _selection: SelectionTarget) -> bool {
-        matches!(self.keyboard.current_focus(), Some(crate::focus::FocusTarget::X11(_)))
+    /// X11 apps may read another app's clipboard only while focused. What we put there ourselves
+    /// (screenshots, a copy kept after its app closed) is open to them anytime: Chromium (Claude
+    /// Desktop, Discord) asks for TARGETS the moment the clipboard changes, while the snip or
+    /// PrtSc still has focus, and a refusal then leaves it thinking there's no image to paste.
+    fn allow_selection_access(&mut self, _xwm: XwmId, selection: SelectionTarget) -> bool {
+        if matches!(self.keyboard.current_focus(), Some(crate::focus::FocusTarget::X11(_))) {
+            return true;
+        }
+        selection == SelectionTarget::Clipboard
+            && smithay::wayland::selection::data_device::current_data_device_selection_userdata(&self.seat).is_some_and(|u| {
+                matches!(&*u, crate::state::SelectionOwner::Bytes(_) | crate::state::SelectionOwner::Saved(_))
+            })
     }
 
     fn send_selection(&mut self, _xwm: XwmId, selection: SelectionTarget, mime_type: String, fd: OwnedFd) {

@@ -1,0 +1,11 @@
+# Regression: X11 apps (Claude Desktop, Discord) must get a whole screenshot from the clipboard.
+# Xwayland reads pastes through a non-blocking pipe; we used to stop writing at the first full
+# pipe, so they got 64 KiB of PNG and called it a broken image. Also checks that an X11 app may
+# read a clipboard we own without having focus (Chromium asks the moment it changes).
+# Needs: cargo build --release --example xpaste
+wait 3
+ipc copy-png assets/wallpapers/aurora.png
+wait 0.5
+run sh -c 'target/release/examples/xpaste image/png /tmp/vibe-xpaste.png 4 && cmp assets/wallpapers/aurora.png /tmp/vibe-xpaste.png && echo PASTE-OK'
+expect-window xpaste 15
+wait 8

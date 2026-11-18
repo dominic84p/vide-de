@@ -1103,6 +1103,7 @@ impl State {
             mime_types.clone(),
             SelectionOwner::Bytes(Arc::new(bytes)),
         );
+        self.clipboard.wayland_mimes = mime_types.clone();
         if let Some(xwm) = self.xwm.as_mut() {
             let _ = xwm.new_selection(SelectionTarget::Clipboard, Some(mime_types));
         }
@@ -1110,11 +1111,19 @@ impl State {
 }
 
 /// Write clipboard bytes into a pasting app's pipe, off the main thread so a slow reader
-/// can't stall us.
+/// can't stall us. The pipe may come non-blocking (Xwayland's always does): then `write_all`
+/// gives up with EAGAIN once the pipe is full, and the reader gets the first 64 KiB of a
+/// screenshot, which Claude and Discord reject as a broken image. This thread can wait.
 pub fn write_clipboard(data: Arc<Vec<u8>>, fd: OwnedFd) {
     std::thread::spawn(move || {
+        use smithay::reexports::rustix::fs::{fcntl_getfl, fcntl_setfl, OFlags};
         use std::io::Write;
-        let _ = std::fs::File::from(fd).write_all(&data);
+        if let Ok(flags) = fcntl_getfl(&fd) {
+            let _ = fcntl_setfl(&fd, flags - OFlags::NONBLOCK);
+        }
+        if let Err(e) = std::fs::File::from(fd).write_all(&data) {
+            tracing::debug!("clipboard paste cut short: {e}");
+        }
     });
 }
 
@@ -1357,5 +1366,39 @@ impl State {
         for s in &all {
             self.send_scale(s);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{io::Read, sync::Arc};
+
+    use smithay::reexports::rustix::{
+        fs::{fcntl_getfl, fcntl_setfl, OFlags},
+        pipe::pipe,
+    };
+
+    /// Xwayland hands us non-blocking pipes and reads them 64 KiB at a time; a screenshot
+    /// must still arrive whole (it used to stop at the first full pipe).
+    #[test]
+    fn clipboard_survives_a_slow_reader_on_a_nonblocking_pipe() {
+        let (rx, tx) = pipe().unwrap();
+        let fl = fcntl_getfl(&tx).unwrap();
+        fcntl_setfl(&tx, fl | OFlags::NONBLOCK).unwrap();
+        let data: Vec<u8> = (0..4 << 20).map(|i: u32| (i * 7 + i / 251) as u8).collect();
+        super::write_clipboard(Arc::new(data.clone()), tx);
+        let mut got = Vec::new();
+        let mut buf = vec![0; 64 << 10];
+        let mut f = std::fs::File::from(rx);
+        loop {
+            std::thread::sleep(std::time::Duration::from_millis(1));
+            let n = f.read(&mut buf).unwrap();
+            if n == 0 {
+                break;
+            }
+            got.extend_from_slice(&buf[..n]);
+        }
+        assert_eq!(got.len(), data.len());
+        assert!(got == data);
     }
 }

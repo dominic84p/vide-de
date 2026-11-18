@@ -47,6 +47,9 @@ pub struct Clipboard {
     /// Fetched so far: mime -> bytes.
     saved: HashMap<String, Arc<Vec<u8>>>,
     tx: Option<Sender<(u64, Vec<String>, Vec<u8>)>>,
+    /// What the current Wayland-side clipboard offers, whoever owns it, so a freshly started
+    /// Xwayland can be told about a clipboard that was set before it existed.
+    pub wayland_mimes: Vec<String>,
 }
 
 impl State {
@@ -76,6 +79,7 @@ impl State {
         c.saved.clear();
         c.offered.clear();
         c.owner = None;
+        c.wayland_mimes = if x11 { Vec::new() } else { mimes.to_vec() };
         if mimes.is_empty() || mimes.iter().any(|m| SECRET.iter().any(|s| m.contains(s))) {
             return;
         }
@@ -150,6 +154,18 @@ impl State {
         }
     }
 
+    /// Xwayland just (re)started: hand it the clipboard we already hold, or X11 apps
+    /// couldn't paste a screenshot taken before the first X11 app launched.
+    pub fn clipboard_offer_to_x11(&mut self) {
+        let mimes = self.clipboard.wayland_mimes.clone();
+        if mimes.is_empty() {
+            return;
+        }
+        if let Some(xwm) = self.xwm.as_mut() {
+            let _ = xwm.new_selection(SelectionTarget::Clipboard, Some(mimes));
+        }
+    }
+
     /// The X11 app holding the clipboard dropped it (most often: it quit).
     pub fn clipboard_x11_cleared(&mut self) {
         if self.clipboard.owner == Some(Owner::X11) {
@@ -172,6 +188,7 @@ impl State {
             mimes.clone(),
             SelectionOwner::Saved(Arc::new(saved)),
         );
+        self.clipboard.wayland_mimes = mimes.clone();
         if let Some(xwm) = self.xwm.as_mut() {
             let _ = xwm.new_selection(SelectionTarget::Clipboard, Some(mimes));
         }
