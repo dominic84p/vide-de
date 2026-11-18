@@ -60,7 +60,7 @@ pub enum TaskbarHit {
     Volume,
     Brightness,
     Network,
-    /// The clock: opens the Action Center too, for want of a calendar.
+    /// The clock: opens the calendar flyout.
     Clock,
     /// The Action Center button right of the clock.
     ActionCenter,
@@ -275,8 +275,10 @@ pub fn draw_taskbar(
         hits.push((rect(bx, 0, TRAY_W, TASKBAR_H), hit));
     }
 
-    // Clock: clicking it opens the Action Center.
-    if hovered(&TaskbarHit::Clock) {
+    // Clock: clicking it opens the calendar.
+    if key.flyout == Some(Flyout::Calendar) {
+        c.rect(right_edge, 0, CLOCK_W, TASKBAR_H, th().active);
+    } else if hovered(&TaskbarHit::Clock) {
         c.rect(right_edge, 0, CLOCK_W, TASKBAR_H, th().hover);
     }
     if let Some(f) = font {

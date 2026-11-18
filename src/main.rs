@@ -1,5 +1,6 @@
 mod anim;
 mod apps;
+mod calendar;
 mod canvas;
 mod clipboard;
 mod cursor;

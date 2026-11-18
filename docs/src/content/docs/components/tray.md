@@ -1,111 +1,43 @@
 ---
 title: 'System Tray (tray.rs)'
-description: 'Volume and brightness flyouts, OSD overlays'
+description: 'Volume, brightness, network and calendar flyouts, and the volume/brightness overlay'
 ---
 
 # System Tray (`tray.rs`)
 
-Built-in volume and brightness control flyouts — separate from StatusNotifierItem (SNI) which handles *app* tray icons.
+Our own tray buttons on the right of the taskbar and the flyouts they open. App tray icons
+(Discord, Steam, ...) are a separate thing, see [`sni.rs`](./sni).
 
-## Volume Flyout
+## Flyouts
 
-```rust
-struct VolumeFlyout {
-    visible: bool,
-    volume: u8,      // 0-100
-    muted: bool,
-    output: String,  // PipeWire node name
-}
-```
+One flyout at a time (`Tray::flyout`), painted on the CPU and cached by a key that holds
+everything it shows. Any click outside closes it.
 
-**Trigger:** Click speaker icon in taskbar, or volume keys (XF86AudioRaiseVolume, etc.)
+| Button | Flyout | What's in it |
+|--------|--------|--------------|
+| Speaker | Volume | A slider (drag it, or scroll over the speaker); click the speaker to mute. Talks to PipeWire with `wpctl`. |
+| Sun | Brightness | A slider. Desktop monitors have no backlight, so brightness is a black veil the compositor draws over everything below the cursor (`State::dim`), never darker than 20%. |
+| Network | Network | Windoze 10's network list from NetworkManager (`nmcli`): connect, disconnect, passwords, Wi-Fi / airplane / hotspot toggles. It rescans when opened. |
+| Clock | Calendar (`calendar.rs`) | The time, large, and the full date, over a month calendar with today filled in. The arrows or the mouse wheel page through months; **Today** comes back. |
 
-**Rendering:**
-```
-┌─────────────────┐
-│  [Vol] Volume  75%│  ← Icon + label + percentage
-├─────────────────┤
-│ ████████████░░  │  ← Visual bar (20 segments)
-├─────────────────┤
-│  [Mute]  [Mixer]│  ← Buttons
-└─────────────────┘
-```
+## Volume and brightness overlay (`osd.rs`)
 
-## Brightness Flyout
+The volume, mute and brightness keys change the level and show Windoze 10's overlay in the
+top-left corner: the speaker or sun, a vertical bar and the percentage. It stays 1.6 s after the
+last press and fades out; timers wake the loop for that, so nothing redraws while it's idle. It
+hides while a tray flyout is open, since the flyout already shows the level.
 
-```rust
-struct BrightnessFlyout {
-    visible: bool,
-    brightness: u8,  // 0-100
-    device: String,  // Backlight device path
-}
-```
-
-**Trigger:** Click brightness icon, or brightness keys (XF86MonBrightnessUp, etc.)
-
-**Note:** Desktop monitors have no hardware backlight. Brightness is a **compositor overlay** (`state.dim`).
-
-```rust
-// In render.rs - applied as full-screen dimming layer
-if state.dim > 0 {
-    elements.push(fullscreen_dim_element(state.dim));
-}
-```
-
-## OSD (On-Screen Display)
-
-Shows briefly when keys pressed:
-
-```
-┌──────────────────────┐
-│  [Vol] Volume: 75%   │
-│  ████████████░░░░░░  │
-└──────────────────────┘
-```
-
-Auto-hides after 2 seconds.
-
-## Keybindings
+## Keys
 
 | Key | Action |
 |-----|--------|
-| `XF86AudioRaiseVolume` | Volume +5% |
-| `XF86AudioLowerVolume` | Volume -5% |
-| `XF86AudioMute` | Toggle mute |
-| `XF86MonBrightnessUp` | Brightness +10% |
-| `XF86MonBrightnessDown` | Brightness -10% |
+| `XF86AudioRaiseVolume` / `XF86AudioLowerVolume` | Volume ±5%, with the overlay |
+| `XF86AudioMute` | Toggle mute, with the overlay |
+| `XF86MonBrightnessUp` / `XF86MonBrightnessDown` | Brightness ±10%, with the overlay |
 
-## D-Bus Integration
+## Related files
 
-Uses `wpctl` (WirePlumber) for volume, `brightnessctl` for brightness:
-
-```rust
-async fn set_volume(volume: u8) {
-    Command::new("wpctl")
-        .args(["set-volume", "@DEFAULT_AUDIO_SINK@", &format!("{}%", volume)])
-        .spawn()?;
-}
-
-async fn set_brightness(brightness: u8) {
-    Command::new("brightnessctl")
-        .args(["set", &format!("{}%", brightness)])
-        .spawn()?;
-}
-```
-
-## Configuration
-
-```ini
-[system-tray]
-volume-step = 5
-brightness-step = 10
-osd-timeout = 2000  # ms
-```
-
-## Related Files
-
-- `sni.rs` — App tray icons (different from system tray)
-- `ui.rs` — Flyout rendering via canvas
-- `input.rs` — Media key handling
-- `state.rs` — `dim` overlay for brightness
-- `config/` — Settings for step sizes
+- `calendar.rs`: the calendar flyout's drawing and month maths
+- `osd.rs`: the key overlay
+- `sni.rs`: app tray icons
+- `input.rs`: media keys, flyout clicks and scrolling

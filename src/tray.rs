@@ -42,6 +42,8 @@ pub enum Flyout {
     Volume,
     Brightness,
     Network,
+    /// The clock's: time, date and a month calendar.
+    Calendar,
 }
 
 /// What the taskbar's network icon shows.
@@ -80,6 +82,9 @@ pub enum FlyoutAction {
     AirplaneToggle,
     HotspotToggle,
     NetworkSettings,
+    /// Calendar: page by this many months, or back to this one.
+    CalMonth(i32),
+    CalToday,
 }
 
 /// One look at the radios and NetworkManager, taken on a thread.
@@ -120,6 +125,8 @@ pub struct Tray {
     pub hover: Option<FlyoutAction>,
     /// Network rows scrolled past.
     pub scroll: usize,
+    /// Calendar: months away from this one.
+    pub cal_month: i32,
     pub(crate) picture: Option<(String, MemoryRenderBuffer, Vec<(Rectangle<i32, Logical>, FlyoutAction)>)>,
     updates: Option<Sender<TrayUpdate>>,
 }
@@ -141,6 +148,7 @@ impl Tray {
             connecting: None,
             hover: None,
             scroll: 0,
+            cal_month: 0,
             picture: None,
             updates: None,
         }
@@ -258,6 +266,7 @@ impl State {
     pub fn flyout_rect(&self) -> Rectangle<i32, Logical> {
         let h = match self.tray.flyout {
             Some(Flyout::Network) => NET_H.min(self.output_size.h - TASKBAR_H - 16),
+            Some(Flyout::Calendar) => crate::calendar::HEIGHT,
             _ => FLYOUT_H,
         };
         let x = self.output_size.w - FLYOUT_W - 8;
@@ -350,6 +359,7 @@ impl State {
                 self.refresh_network_in(Duration::from_secs(4));
             }
             Flyout::Brightness => {}
+            Flyout::Calendar => self.tray.cal_month = 0,
         }
         self.needs_redraw = true;
     }
@@ -439,7 +449,7 @@ impl State {
 
     /// The network flyout's hit under `p`.
     pub fn flyout_action(&self, p: Point<f64, Logical>) -> Option<FlyoutAction> {
-        if self.tray.flyout != Some(Flyout::Network) {
+        if !matches!(self.tray.flyout, Some(Flyout::Network | Flyout::Calendar)) {
             return None;
         }
         let local = (p - self.flyout_rect().loc.to_f64()).to_i32_round();
@@ -457,6 +467,8 @@ impl State {
             state.close_flyout();
         };
         match a {
+            FlyoutAction::CalMonth(d) => self.tray.cal_month += d,
+            FlyoutAction::CalToday => self.tray.cal_month = 0,
             FlyoutAction::Select(ssid) => {
                 let open = self.tray.expanded.as_ref() != Some(&ssid);
                 self.tray.expanded = open.then_some(ssid);
@@ -528,6 +540,11 @@ impl State {
     }
 
     pub fn flyout_scroll(&mut self, rows: i32) {
+        if self.tray.flyout == Some(Flyout::Calendar) {
+            self.tray.cal_month += rows;
+            self.needs_redraw = true;
+            return;
+        }
         let max = self.tray.net.networks.len().saturating_sub(1);
         self.tray.scroll = (self.tray.scroll as i32 + rows).clamp(0, max as i32) as usize;
         self.needs_redraw = true;
@@ -536,7 +553,7 @@ impl State {
     /// Pointer at `p` on the open flyout: a network-flyout click, or the slider / mute icon.
     pub fn flyout_press(&mut self, p: Point<f64, Logical>) {
         let Some(f) = self.tray.flyout else { return };
-        if f == Flyout::Network {
+        if matches!(f, Flyout::Network | Flyout::Calendar) {
             if let Some(a) = self.flyout_action(p) {
                 self.run_flyout_action(a);
             }
@@ -553,7 +570,7 @@ impl State {
 
     pub fn flyout_drag(&mut self, p: Point<f64, Logical>) {
         let Some(f) = self.tray.flyout else { return };
-        if f == Flyout::Network {
+        if matches!(f, Flyout::Network | Flyout::Calendar) {
             return;
         }
         let local = p.x - self.flyout_rect().loc.x as f64;
@@ -561,7 +578,7 @@ impl State {
         match f {
             Flyout::Volume => self.set_volume(v),
             Flyout::Brightness => self.set_brightness(MIN_BRIGHTNESS + v * (1.0 - MIN_BRIGHTNESS)),
-            Flyout::Network => {}
+            Flyout::Network | Flyout::Calendar => {}
         }
     }
 
@@ -576,6 +593,8 @@ impl State {
                 "network:{h}:{:?}:{:?}:{:?}:{}:{}:{:?}:{:?}:{}",
                 t.net, t.expanded, t.password.as_ref().map(|p| p.chars().count()), t.password_error, t.auto_connect, t.connecting, t.hover, t.scroll
             ),
+            // The minute is in the key so the big clock keeps time.
+            Flyout::Calendar => format!("calendar:{}:{}:{:?}:{}", t.cal_month, self.clock.0, t.hover, crate::theme::light()),
         };
         if self.tray.picture.as_ref().is_none_or(|(k, _, _)| *k != key) {
             let mut c = Canvas::new(FLYOUT_W, h);
@@ -585,6 +604,11 @@ impl State {
             match f {
                 Flyout::Volume | Flyout::Brightness => draw_slider(&mut c, self, f),
                 Flyout::Network => hits = draw_network(&mut c, self),
+                Flyout::Calendar => {
+                    if let Some(font) = self.font.as_ref() {
+                        hits = crate::calendar::draw(&mut c, font, self.tray.cal_month, self.config.clock_24h, self.tray.hover.as_ref());
+                    }
+                }
             }
             self.tray.picture = Some((key, c.into_buffer(), hits));
         }

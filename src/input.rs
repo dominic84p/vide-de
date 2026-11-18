@@ -326,7 +326,7 @@ impl State {
                     }
                     return;
                 }
-                if self.tray.flyout == Some(crate::tray::Flyout::Network) && self.flyout_rect().to_f64().contains(self.pointer_loc) {
+                if matches!(self.tray.flyout, Some(crate::tray::Flyout::Network | crate::tray::Flyout::Calendar)) && self.flyout_rect().to_f64().contains(self.pointer_loc) {
                     let v = event.amount(Axis::Vertical).unwrap_or_else(|| event.amount_v120(Axis::Vertical).unwrap_or(0.0) / 8.0);
                     if v != 0.0 {
                         self.flyout_scroll(v.signum() as i32);
@@ -1117,7 +1117,7 @@ impl State {
                 }
                 return;
             }
-            if !matches!(target, Target::Taskbar(TaskbarHit::Clock | TaskbarHit::ActionCenter)) {
+            if !matches!(target, Target::Taskbar(TaskbarHit::ActionCenter)) {
                 self.close_action_center();
             }
         }
@@ -1192,7 +1192,11 @@ impl State {
                         TaskbarHit::Volume => self.toggle_flyout(crate::tray::Flyout::Volume),
                         TaskbarHit::Brightness => self.toggle_flyout(crate::tray::Flyout::Brightness),
                         TaskbarHit::Network => self.toggle_flyout(crate::tray::Flyout::Network),
-                        TaskbarHit::Clock | TaskbarHit::ActionCenter => self.toggle_action_center(),
+                        TaskbarHit::Clock => {
+                            self.close_action_center();
+                            self.toggle_flyout(crate::tray::Flyout::Calendar);
+                        }
+                        TaskbarHit::ActionCenter => self.toggle_action_center(),
                         TaskbarHit::TrayApp(id) => {
                             self.tray_menu_x = pos.x as i32;
                             if let Some(surface) = self.window_for_tray(&id) {
