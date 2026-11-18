@@ -50,6 +50,9 @@ pub enum Action {
     SignOut,
     /// Keep a window above all others, or stop.
     OnTop(WlSurface),
+    /// Clipboard history (Win+V): put entry N back on the clipboard and paste it.
+    ClipPaste(usize),
+    ClipClear,
 }
 
 /// A row's icon in a jump list: the app's own, or one of our glyphs (SVG drawn in white).
@@ -405,9 +408,70 @@ impl State {
                     let _ = tx.send(crate::sni::Cmd::MenuClick { id, entry });
                 }
             }
+            Action::ClipPaste(i) => self.paste_from_history(i),
+            Action::ClipClear => self.clipboard.history.clear(),
             Action::Separator | Action::Inert => {}
         }
         self.needs_redraw = true;
+    }
+
+    /// Up/Down in an open menu: highlight the next row that can be picked, wrapping around.
+    pub fn menu_step(&mut self, delta: i32) {
+        let Some(m) = self.menu.as_mut() else { return };
+        let n = m.items.len() as i32;
+        let pickable = |i: i32| !matches!(m.items[i as usize].1, Action::Separator | Action::Inert);
+        let mut i = m.hover.map_or(if delta > 0 { -1 } else { n }, |h| h as i32);
+        for _ in 0..n {
+            i = (i + delta).rem_euclid(n);
+            if pickable(i) {
+                m.hover = Some(i as usize);
+                break;
+            }
+        }
+        self.needs_redraw = true;
+    }
+
+    /// Enter in an open menu: run the highlighted row.
+    pub fn menu_pick(&mut self) {
+        let Some(action) = self.menu.as_ref().and_then(|m| m.hover.and_then(|h| m.items.get(h))).map(|(_, a)| a.clone()) else {
+            return;
+        };
+        self.run_menu_action(action);
+    }
+
+    /// Win+V: the last things copied, newest first; picking one pastes it.
+    pub fn open_clipboard_history(&mut self) {
+        let mut items: Vec<(String, Action)> = vec![("Clipboard".into(), Action::Inert)];
+        if self.clipboard.history.is_empty() {
+            items.push(("Nothing copied yet".into(), Action::Inert));
+        } else {
+            items.extend(self.clipboard.history.iter().enumerate().map(|(i, e)| (e.label.clone(), Action::ClipPaste(i))));
+            items.push((String::new(), Action::Separator));
+            items.push(("Clear all".into(), Action::ClipClear));
+        }
+        let at = self.pointer_loc.to_i32_round();
+        self.open_menu(at, items);
+        // Ready for Enter straight away, like Windoze.
+        self.menu_step(1);
+    }
+
+    /// Put a history entry back on the clipboard, then press Ctrl+V for the focused app once
+    /// it has had a moment to hear about the new clipboard.
+    fn paste_from_history(&mut self, i: usize) {
+        let Some(e) = self.clipboard.history.get(i).cloned() else { return };
+        self.set_clipboard_shared(e.mimes, e.data);
+        if self.focused().is_none() {
+            return;
+        }
+        use smithay::reexports::calloop::timer::{TimeoutAction, Timer};
+        let _ = self.loop_handle.insert_source(Timer::from_duration(std::time::Duration::from_millis(120)), |_, _, state| {
+            // evdev codes: left Ctrl, V.
+            state.key_event(29, true);
+            state.key_event(47, true);
+            state.key_event(47, false);
+            state.key_event(29, false);
+            TimeoutAction::Drop
+        });
     }
 }
 

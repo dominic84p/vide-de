@@ -1099,14 +1099,20 @@ impl State {
     /// Smithay only tells our `new_selection` about clipboards that apps set, so X11 apps
     /// would never hear of this one unless the X11 WM is told here.
     pub fn set_clipboard_bytes(&mut self, mime_types: Vec<String>, bytes: Vec<u8>) {
+        self.set_clipboard_shared(mime_types, Arc::new(bytes));
+    }
+
+    /// `set_clipboard_bytes` for bytes we already share (pasting from clipboard history).
+    pub fn set_clipboard_shared(&mut self, mime_types: Vec<String>, bytes: Arc<Vec<u8>>) {
         self.clipboard_forget();
         smithay::wayland::selection::data_device::set_data_device_selection(
             &self.dh,
             &self.seat,
             mime_types.clone(),
-            SelectionOwner::Bytes(Arc::new(bytes)),
+            SelectionOwner::Bytes(bytes.clone()),
         );
         self.clipboard.wayland_mimes = mime_types.clone();
+        self.clipboard_remember(&mime_types, bytes);
         if let Some(xwm) = self.xwm.as_mut() {
             let _ = xwm.new_selection(SelectionTarget::Clipboard, Some(mime_types));
         }

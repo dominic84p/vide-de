@@ -171,7 +171,7 @@ impl State {
         self.start_time.elapsed().as_millis() as u32
     }
 
-    fn key_event(&mut self, evdev: u32, down: bool) {
+    pub fn key_event(&mut self, evdev: u32, down: bool) {
         use smithay::backend::input::KeyState;
         let t = self.now_ms();
         // xkb keycodes are evdev codes plus 8.

@@ -48,6 +48,7 @@ description: 'Complete keyboard shortcut list'
 |----------|--------|
 | `Super+Enter` | Launch terminal (konsole) |
 | `Super+E` | Launch File Exploder |
+| `Super+V` | Clipboard history: the last 25 things you copied (text and images, screenshots included), newest first. Pick one with the mouse or arrows + `Enter` and it's pasted into the focused app. **Clear all** empties it. Password-manager copies are never kept. Nested: `Alt+V` |
 | `Super+Shift+Esc` | Launch Task Mangler |
 | `Super+Shift+S` | Region snip (screenshot) |
 | `PrtSc` | Fullscreen screenshot |
@@ -116,3 +117,8 @@ Set via environment variables when launching.
 - [Input Handling](/vide-de/components/input-handling/) — Implementation details
 - [Configuration](/vide-de/configuration/settings) — Other settings
 - [Installation](/vide-de/getting-started/installation/) — Running with debug flags
+
+## Menus
+
+Every menu (right-click menus, the window menu, taskbar jump lists, clipboard history) also
+works from the keyboard: `Up`/`Down` move the highlight, `Enter` picks, `Esc` closes.

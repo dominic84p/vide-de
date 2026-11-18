@@ -3,9 +3,12 @@
 //! offering its dead source and paste comes back empty. So when an app copies, we fetch the
 //! useful formats in the background, and if that app (or the X11 app that owned it) goes
 //! away, we put our copy back on the clipboard.
+//!
+//! The same copies feed clipboard history (Win+V): the last few things copied, text and images,
+//! to paste again. Password-manager copies are never fetched, so never remembered.
 
 use std::{
-    collections::HashMap,
+    collections::{HashMap, VecDeque},
     io::Read,
     os::unix::{io::OwnedFd, net::UnixStream},
     sync::Arc,
@@ -29,6 +32,18 @@ const OTHERS: [&str; 4] = ["image/png", "text/uri-list", "x-special/gnome-copied
 /// Password managers mark what they copy; that must vanish with them, never be kept.
 const SECRET: [&str; 2] = ["x-kde-passwordManagerHint", "secret"];
 const MAX_BYTES: usize = 64 << 20;
+/// Clipboard history: how many entries, and how much memory they may take together.
+const HISTORY_LEN: usize = 25;
+const HISTORY_BYTES: usize = 96 << 20;
+
+/// Something copied earlier, to paste again from Win+V.
+#[derive(Clone)]
+pub struct ClipEntry {
+    /// One line describing it: the text's first line, or "Image, 1920 × 1080".
+    pub label: String,
+    pub mimes: Vec<String>,
+    pub data: Arc<Vec<u8>>,
+}
 
 /// Who holds the clipboard we're mirroring.
 #[derive(Clone, PartialEq)]
@@ -50,6 +65,8 @@ pub struct Clipboard {
     /// What the current Wayland-side clipboard offers, whoever owns it, so a freshly started
     /// Xwayland can be told about a clipboard that was set before it existed.
     pub wayland_mimes: Vec<String>,
+    /// Newest first.
+    pub history: VecDeque<ClipEntry>,
 }
 
 impl State {
@@ -62,9 +79,10 @@ impl State {
             if let channel::Event::Msg((generation, mimes, bytes)) = ev {
                 if generation == state.clipboard.generation && !bytes.is_empty() {
                     let bytes = Arc::new(bytes);
-                    for m in mimes {
-                        state.clipboard.saved.insert(m, bytes.clone());
+                    for m in &mimes {
+                        state.clipboard.saved.insert(m.clone(), bytes.clone());
                     }
+                    state.clipboard_remember(&mimes, bytes);
                 }
             }
         });
@@ -154,6 +172,19 @@ impl State {
         }
     }
 
+    /// Add a copy to the clipboard history, if it's text or an image; copying the same thing
+    /// again moves it back to the top.
+    pub fn clipboard_remember(&mut self, mimes: &[String], data: Arc<Vec<u8>>) {
+        let Some(label) = history_label(mimes, &data) else { return };
+        let h = &mut self.clipboard.history;
+        h.retain(|e| e.data.len() != data.len() || *e.data != *data);
+        h.push_front(ClipEntry { label, mimes: mimes.to_vec(), data });
+        h.truncate(HISTORY_LEN);
+        while h.len() > 1 && h.iter().map(|e| e.data.len()).sum::<usize>() > HISTORY_BYTES {
+            h.pop_back();
+        }
+    }
+
     /// Xwayland just (re)started: hand it the clipboard we already hold, or X11 apps
     /// couldn't paste a screenshot taken before the first X11 app launched.
     pub fn clipboard_offer_to_x11(&mut self) {
@@ -192,5 +223,53 @@ impl State {
         if let Some(xwm) = self.xwm.as_mut() {
             let _ = xwm.new_selection(SelectionTarget::Clipboard, Some(mimes));
         }
+    }
+}
+
+/// How a copy reads in the history list, or `None` if it isn't worth keeping there.
+fn history_label(mimes: &[String], data: &[u8]) -> Option<String> {
+    if data.is_empty() {
+        return None;
+    }
+    if mimes.iter().any(|m| m == "image/png") {
+        // Width and height sit in the IHDR chunk, right after the signature.
+        let size = (data.len() >= 24 && &data[12..16] == b"IHDR").then(|| {
+            let be = |i: usize| u32::from_be_bytes([data[i], data[i + 1], data[i + 2], data[i + 3]]);
+            format!("Image, {} \u{d7} {}", be(16), be(20))
+        });
+        return Some(size.unwrap_or_else(|| "Image".into()));
+    }
+    if !mimes.iter().any(|m| TEXT.contains(&m.as_str())) {
+        return None;
+    }
+    let text = std::str::from_utf8(data).ok()?;
+    let first = text.lines().map(str::trim).find(|l| !l.is_empty())?;
+    let mut line: String = first.split_whitespace().collect::<Vec<_>>().join(" ");
+    if line.chars().count() > 60 {
+        line = line.chars().take(59).collect::<String>() + "\u{2026}";
+    }
+    let more = text.trim().lines().count();
+    if more > 1 {
+        line += &format!("  (+{} lines)", more - 1);
+    }
+    Some(line)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::history_label;
+
+    fn m(s: &[&str]) -> Vec<String> {
+        s.iter().map(|x| x.to_string()).collect()
+    }
+
+    #[test]
+    fn history_labels() {
+        assert_eq!(history_label(&m(&["text/plain"]), b"  hello   world \nsecond").as_deref(), Some("hello world  (+1 lines)"));
+        assert_eq!(history_label(&m(&["text/uri-list"]), b"file:///x"), None);
+        let mut png = b"\x89PNG\r\n\x1a\n\0\0\0\x0dIHDR".to_vec();
+        png.extend_from_slice(&1920u32.to_be_bytes());
+        png.extend_from_slice(&1080u32.to_be_bytes());
+        assert_eq!(history_label(&m(&["image/png"]), &png).as_deref(), Some("Image, 1920 \u{d7} 1080"));
     }
 }

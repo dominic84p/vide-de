@@ -60,6 +60,11 @@ enum Action {
     SwitcherCancel,
     /// Win+Shift+P: pick a window to keep on top.
     PinPicker,
+    /// Win+V.
+    ClipboardHistory,
+    /// Arrow keys and Enter in an open menu.
+    MenuStep(i32),
+    MenuPick,
     /// Pin or unpin the picker's highlighted window.
     PinPick,
     TaskView,
@@ -162,6 +167,7 @@ fn bind(super_mod: bool, mods: &ModifiersState, sym: Keysym) -> Option<Action> {
         Keysym::a | Keysym::n => Some(Action::ToggleActionCenter),
         Keysym::e if mods.shift => Some(Action::Quit),
         Keysym::p | Keysym::P if mods.shift => Some(Action::PinPicker),
+        Keysym::v if !mods.shift => Some(Action::ClipboardHistory),
         // Workspace switching: Mod+1-9,0 (0 = workspace 10)
         // Mod+Shift+1-9,0 to move focused window to workspace (must come first)
         Keysym::_1 if mods.shift => Some(Action::MoveToWorkspace(0)),
@@ -432,6 +438,14 @@ impl State {
             if state.menu.is_some() && pressed && modified == Keysym::Escape {
                 return FilterResult::Intercept(Action::CloseMenu);
             }
+            if state.menu.is_some() && pressed {
+                match modified {
+                    Keysym::Up => return FilterResult::Intercept(Action::MenuStep(-1)),
+                    Keysym::Down => return FilterResult::Intercept(Action::MenuStep(1)),
+                    Keysym::Return | Keysym::KP_Enter => return FilterResult::Intercept(Action::MenuPick),
+                    _ => {}
+                }
+            }
             if menu_open {
                 // The start menu takes all typing while open.
                 let k = if pressed { menu_key(modified, modified.key_char()) } else { MenuKey::Ignore };
@@ -509,6 +523,9 @@ impl State {
                 }
             }
             Action::CloseMenu => self.close_menu(),
+            Action::ClipboardHistory => self.open_clipboard_history(),
+            Action::MenuStep(d) => self.menu_step(d),
+            Action::MenuPick => self.menu_pick(),
             Action::CancelSnip => self.cancel_snip(),
             Action::CloseDesktops => self.close_desktops(),
             Action::ToggleActionCenter => self.toggle_action_center(),
