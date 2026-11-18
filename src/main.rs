@@ -111,6 +111,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing::info!("listening on {socket_name}");
     apps::install_builtin();
     let mut state = State::new(dh, event_loop.handle(), socket_name);
+    // Both icon sets are indexed now; their shared folder listings can go.
+    icons::forget_listings();
 
     // Optional autostart, e.g. `VIBE_STARTUP=konsole cargo run`. Runs once Xwayland is up.
     state.startup = std::env::var("VIBE_STARTUP").ok();

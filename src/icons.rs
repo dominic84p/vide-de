@@ -202,17 +202,53 @@ impl Icons {
     }
 }
 
-/// Collect .png/.svg files under `dir`, a few levels deep.
+/// Collect .png/.svg files under `dir`, a few levels deep. The tray's dark set and the main
+/// set walk the same themes, so each folder's listing is kept for the next one to ask: that
+/// halves the startup time spent here (it runs on the main loop, before the first frame).
+type Listings = std::sync::Mutex<HashMap<(PathBuf, u32), std::sync::Arc<Vec<PathBuf>>>>;
+static LISTED: std::sync::OnceLock<Listings> = std::sync::OnceLock::new();
+
+/// Drop the kept folder listings once both icon sets are built, so a later re-index sees new
+/// icons and the memory goes back.
+pub fn forget_listings() {
+    if let Some(l) = LISTED.get() {
+        l.lock().unwrap().clear();
+    }
+}
+
 fn walk(dir: &Path, depth: u32, f: &mut dyn FnMut(&Path)) {
+    use std::sync::Arc;
+    let key = (dir.to_path_buf(), depth);
+    let cached = LISTED.get_or_init(Default::default).lock().unwrap().get(&key).cloned();
+    let files = cached.unwrap_or_else(|| {
+        let mut files = Vec::new();
+        collect(dir, depth, &mut files);
+        let files = Arc::new(files);
+        LISTED.get_or_init(Default::default).lock().unwrap().insert(key, files.clone());
+        files
+    });
+    for p in files.iter() {
+        f(p);
+    }
+}
+
+fn collect(dir: &Path, depth: u32, out: &mut Vec<PathBuf>) {
     let Ok(entries) = std::fs::read_dir(dir) else { return };
     for e in entries.flatten() {
         let path = e.path();
-        if path.is_dir() {
+        // The directory listing already says what each entry is; only symlinks (common in
+        // icon themes) need a stat to find out what they point at.
+        let is_dir = match e.file_type() {
+            Ok(t) if t.is_symlink() => path.is_dir(),
+            Ok(t) => t.is_dir(),
+            Err(_) => path.is_dir(),
+        };
+        if is_dir {
             if depth < 4 {
-                walk(&path, depth + 1, f);
+                collect(&path, depth + 1, out);
             }
         } else if matches!(path.extension().and_then(|x| x.to_str()), Some("png" | "svg")) {
-            f(&path);
+            out.push(path);
         }
     }
 }
@@ -385,4 +421,18 @@ fn scale_to(src: &Icon, w: u32, h: u32) -> Icon {
         }
     }
     Icon { w, h, rgba: out }
+}
+
+#[cfg(test)]
+mod tests {
+    /// How long indexing the installed themes takes (it runs at startup, on the main loop):
+    /// `cargo test --release -- --ignored icon_index_time --nocapture`.
+    #[test]
+    #[ignore]
+    fn icon_index_time() {
+        let t = std::time::Instant::now();
+        let a = super::Icons::new();
+        let b = super::Icons::dark();
+        println!("new + dark: {:?} ({} + {} names)", t.elapsed(), a.index.len(), b.index.len());
+    }
 }
