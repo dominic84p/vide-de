@@ -255,9 +255,8 @@ cargo build --release --workspace
 # 2. Test nested
 VIBE_STARTUP=my-app timeout 12 ./target/release/vibe-comp --nested
 
-# 3. Verify config works
-vide-config set my-feature-enabled false
-# Should apply within 1 second
+# 3. Verify config works: flip it in ~/.config/vide-de/settings.conf
+#    (or in Settings); the compositor picks it up within a second
 ```
 
 ## Related Files

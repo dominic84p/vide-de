@@ -55,4 +55,4 @@ Complete reference for `~/.config/vide-de/settings.conf` as defined in `config/s
 
 | Key | Type | Default | Description |
 |---|---|---|---|
-| `idle_lock_minutes` | int | `0` | Idle minutes before lock (`0` = never) |
+| `idle_lock_minutes` | int | `0` | Reserved for idle lock. **Not implemented yet:** VIDE-DE has no lock screen, so this does nothing. |

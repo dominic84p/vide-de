@@ -98,9 +98,8 @@ cargo build --release
 
 | Issue | Fix |
 |-------|-----|
-| Settings not applying | Wait 1s (poll interval), check `vide-config validate` |
-| Config file corrupt | `vide-config reset` |
-| Colors wrong | Use ARGB hex: `AABBGGRR` (not RRGGBB) |
+| Settings not applying | Wait a second (it's polled), and check the line is `key=value` with a key from the [Settings Reference](/vide-de/reference/settings-reference/) |
+| Config file corrupt | Delete `~/.config/vide-de/settings.conf`; the defaults come back at once |
 
 ## Logs
 

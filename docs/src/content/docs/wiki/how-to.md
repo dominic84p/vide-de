@@ -5,157 +5,85 @@ description: 'Step-by-step guides for common tasks'
 
 # How-To Guides
 
-## Change Theme
+Most settings live in the Settings app (`vide-settings`, or Start → Settings), which writes
+`~/.config/vide-de/settings.conf`. You can edit that file by hand too: the compositor reads it
+again within a second. Every key is in the [Settings Reference](/vide-de/reference/settings-reference/).
 
-```bash
-# Dark theme
-vide-config set theme dark
+## Light or Dark Mode
 
-# Light theme
-vide-config set theme light
+Settings → Personalization → Colors, or in `settings.conf`:
 
-# System (follows GTK)
-vide-config set theme system
+```ini
+light_mode=true
 ```
 
-Or use Settings app: `vide-settings` → Appearance.
+## Add a Keybinding
 
-## Add Custom Keybinding
+Keybindings aren't configurable yet. They live in `bind()` in `src/input.rs`; add an arm there
+and rebuild with `cargo build --release --workspace`.
 
-Not yet configurable via settings. Edit `src/input.rs`:
+## Pin an App to the Taskbar
 
-```rust
-// In bind() function
-(Mod::Super | Mod::Shift, Key::KeyN) => Some(Action::MyAction),
-```
+Right-click it in Start → **Pin to taskbar**, or drag it from Start onto the taskbar. Drag
+taskbar buttons to reorder them.
 
-Then rebuild: `cargo build --release --workspace`.
+## Change the Wallpaper
 
-## Pin App to Taskbar
+Settings → Personalization → Background. The bundled wallpapers are in
+`~/.local/share/vide-de/wallpapers/`; to use your own, set `wallpaper=/path/to/image.png` in
+`settings.conf`.
 
-1. Open Start menu (`Super`)
-2. Find app (search or browse)
-3. Right-click → "Pin to taskbar"
-
-Or drag from Start menu to taskbar.
-
-## Change Wallpaper
-
-1. Right-click desktop → "Change Wallpaper"
-2. Select image
-3. Or: `vide-settings` → Desktop → Wallpaper
-
-Wallpapers stored in `~/.local/share/vide-de/wallpapers/`.
-
-## Add Custom Wallpaper
-
-```bash
-cp my-wallpaper.jpg ~/.local/share/vide-de/wallpapers/
-```
-
-Then select in Settings or right-click desktop.
-
-## Take Screenshot
+## Take a Screenshot
 
 | Shortcut | Result |
 |----------|--------|
-| `PrtSc` | Fullscreen → `~/Pictures/Screenshots/` |
-| `Win+Shift+S` | Region snip → Opens Snip & Sketchy |
-| `Win+PrtSc` | Fullscreen save |
-| `Alt+PrtSc` | Active window |
+| `PrtSc` | The whole screen (every monitor), saved to `~/Pictures/Screenshots/` and copied |
+| `Shift+PrtSc` or `Win+Shift+S` | Pick a region, then mark it up in Snip & Sketchy |
 
-## Record Screen
+Copied screenshots paste into any app, X11 ones (Discord, Claude Desktop) included.
 
-Not built-in. Use `wf-recorder` or `obs-studio` (both work on Wayland).
+## Paste Something You Copied Earlier
 
-## Launch App on Startup
+`Win+V` opens clipboard history: the last 25 things copied, newest first. Pick one and it's
+pasted into the app you're in.
 
-```bash
-# One-time
-VIDE_STARTUP=firefox ./target/release/vibe-comp --nested
+## Type an Emoji
 
-# Permanent (add to shell profile)
-echo 'export VIDE_STARTUP=firefox' >> ~/.bashrc
-```
+`Win+.` opens Emoji Panic. Search or browse, click one, and it's typed into the app you were in.
 
-## Switch Workspace
+## Record the Screen
 
-`Super+1` through `Super+0` for workspaces 1-10.
+Not built in yet. `wf-recorder` and OBS work, through our screencast portal (`vide-portal`).
 
-## Move Window to Workspace
+## Start an App with the Session
 
-`Super+Shift+1` through `Super+Shift+0`.
-
-## Open Task View
-
-`Super+Tab` — shows all workspaces and windows.
-
-## Use Alt+Tab Switcher
-
-Hold `Alt`, press `Tab` repeatedly, release to switch.
-
-## Configure Taskbar Position
+`VIBE_STARTUP` runs a command once the compositor (and Xwayland) is up:
 
 ```bash
-# Top
-vide-config set taskbar-position top
-
-# Bottom (default)
-vide-config set taskbar-position bottom
-
-# Left
-vide-config set taskbar-position left
-
-# Right
-vide-config set taskbar-position right
+VIBE_STARTUP=firefox vibe-comp --tty
 ```
 
-## Auto-Hide Taskbar
+## Workspaces, Task View and Alt+Tab
 
-```bash
-vide-config set taskbar-auto-hide true
-```
+- `Super+1` … `Super+0`: go to workspace 1-10; add `Shift` to move the focused window there.
+- `Super+Ctrl+Left` / `Right`: previous / next workspace.
+- `Super+Tab`: Task View, every window of this desktop and the desktop strip.
+- Hold `Alt` and press `Tab` to pick a window; let go of `Alt` to switch.
 
-## Change Taskbar Color
+## Turn Animations Off
 
-```bash
-# VIDE-DE blue (default)
-vide-config set taskbar-bg 0078D7FF
-
-# Dark transparent
-vide-config set taskbar-bg 80000000
-
-# Custom (ARGB hex: AABBGGRR)
-vide-config set taskbar-bg FF123456
-```
-
-## Enable/Disable Animations
-
-Settings → Ease of Access → Display → **Show animations**, or in
-`~/.config/vide-de/settings.conf` (applies within a second):
+Settings → Ease of Access → Display → **Show animations**, or in `settings.conf`:
 
 ```ini
 animations=false
 ```
 
-## Configure Snip Magnifier
-
-```bash
-vide-config set snip-magnifier true
-vide-config set snip-magnifier-scale 3.0
-```
-
-## Change Cursor Theme
-
-```bash
-vide-config set cursor-theme Papirus
-vide-config set cursor-size 28
-```
-
 ## Reset All Settings
 
+Delete the file; the defaults come back at once:
+
 ```bash
-vide-config reset
+rm ~/.config/vide-de/settings.conf
 ```
 
 ## Run Nested for Testing
@@ -182,7 +110,7 @@ VIBE_DEBUG_START=text ./target/release/vibe-comp --nested
 
 ```bash
 VIBE_DEBUG_SHOT=1 timeout 10 ./target/release/vibe-comp --nested
-# Saves to ~/Pictures/Screenshots/ after 6s
+# Screenshots itself after 6 s
 ```
 
 ## Test TTY Mode Safely
