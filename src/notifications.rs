@@ -797,7 +797,7 @@ impl State {
     /// Hidden while the Action Center shows the same notifications. Over a fullscreen app
     /// (a game, a video) they show too, as on Windoze: a small cached picture in one corner,
     /// so only that corner is redrawn and the app's frames aren't touched.
-    fn toasts_visible(&self) -> bool {
+    pub fn toasts_visible(&self) -> bool {
         !self.toasts.list.is_empty() && !self.action_center.open
     }
 

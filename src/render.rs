@@ -94,15 +94,31 @@ fn solid_fx(v: &View, buf: &SolidColorBuffer, at: Point<i32, Logical>, fx: &Fx) 
     if fx.scaled() { Elem::ScaledSolid(RescaleRenderElement::from_element(e, v.px(fx.origin + fx.offset), fx.scale)) } else { Elem::Solid(e) }
 }
 
-/// A window's open, restore or minimize animation, if one is running; clears finished ones.
-fn window_fx(w: &mut crate::wm::Window, on: bool, animating: &mut bool) -> Option<Fx> {
-    use crate::anim::{ease_out, progress, WINDOW_MINIMIZE, WINDOW_OPEN};
+/// A window's open, restore, minimize or resize animation, if one is running; clears
+/// finished ones. `button` is the centre of its taskbar button, where minimizing sends it.
+fn window_fx(w: &mut crate::wm::Window, on: bool, button: Option<Point<i32, Logical>>, animating: &mut bool) -> Option<Fx> {
+    use crate::anim::*;
     if !on {
         w.appear = None;
         w.vanish = None;
+        w.morph = None;
         return None;
     }
     let f = w.frame();
+    let centre = f.loc + Point::from((f.size.w / 2, f.size.h / 2));
+    // Flying into (or out of) the taskbar: `t` is how far along that trip it is, shrinking to
+    // a tenth of its size about its centre while the centre travels to the button. Without a
+    // button (taskbar hidden) it drops toward the bottom of the screen.
+    let to_taskbar = |t: f32| {
+        let target = button.unwrap_or(centre + Point::from((0, f.size.h / 2 + 60)));
+        let d = target - centre;
+        Fx {
+            alpha: (1.0 - t * t).clamp(0.0, 1.0),
+            scale: 1.0 - 0.9 * t as f64,
+            origin: centre,
+            offset: ((d.x as f32 * t).round() as i32, (d.y as f32 * t).round() as i32).into(),
+        }
+    };
     if let Some(t0) = w.vanish {
         let p = progress(t0, WINDOW_MINIMIZE);
         if p >= 1.0 {
@@ -110,21 +126,65 @@ fn window_fx(w: &mut crate::wm::Window, on: bool, animating: &mut bool) -> Optio
             return None;
         }
         *animating = true;
-        // Shrink toward the bottom, where the taskbar is.
-        let e = ease_out(p);
-        let origin = f.loc + Point::from((f.size.w / 2, f.size.h));
-        return Some(Fx { alpha: 1.0 - e, scale: 1.0 - 0.2 * e as f64, origin, offset: (0, (30.0 * e) as i32).into() });
+        return Some(to_taskbar(ease_in_out(p)));
     }
-    let t0 = w.appear?;
-    let p = progress(t0, WINDOW_OPEN);
-    if p >= 1.0 {
-        w.appear = None;
+    if let Some(t0) = w.appear {
+        let restored = w.restored;
+        let p = progress(t0, if restored { WINDOW_RESTORE } else { WINDOW_OPEN });
+        if p >= 1.0 {
+            w.appear = None;
+            w.restored = false;
+        } else {
+            *animating = true;
+            if restored {
+                return Some(to_taskbar(1.0 - ease_out(p)));
+            }
+            // Zooms up from 82% with a little pop past full size, fading in fast and rising
+            // into place.
+            return Some(Fx {
+                alpha: ease_out_quint(p),
+                scale: (0.82 + 0.18 * ease_out_back(p)) as f64,
+                origin: centre,
+                offset: (0, (28.0 * (1.0 - ease_out(p))).round() as i32).into(),
+            });
+        }
+    }
+    let (t0, from) = w.morph?;
+    let p = progress(t0, WINDOW_MORPH);
+    if p >= 1.0 || f.size.w <= 0 {
+        w.morph = None;
         return None;
     }
     *animating = true;
-    let e = ease_out(p);
-    let origin = f.loc + Point::from((f.size.w / 2, f.size.h / 2));
-    Some(Fx { alpha: e, scale: 0.9 + 0.1 * e as f64, origin, offset: (0, 0).into() })
+    // One scale for both axes (that's all a rescale element does): match the width and let
+    // the height follow; for under 200 ms the difference doesn't show.
+    let r = lerp_rect(from, f, ease_out(p));
+    Some(Fx { alpha: 1.0, scale: r.size.w as f64 / f.size.w as f64, origin: f.loc, offset: r.loc - f.loc })
+}
+
+/// Draw a panel through its open or close animation. While open it shows `now` (and
+/// remembers it); once closed it fades out from the last picture it showed.
+fn panel_fx(
+    renderer: &mut GlesRenderer,
+    v: &View,
+    out: &mut Vec<Elem>,
+    edge: &mut crate::anim::Edge,
+    phase: crate::anim::Phase,
+    now: Option<(MemoryRenderBuffer, Point<i32, Logical>)>,
+    fx: impl Fn(f32, Point<i32, Logical>) -> Fx,
+) {
+    use crate::anim::Phase;
+    let shown = match phase {
+        Phase::Open(_) => {
+            edge.last = now.clone();
+            now
+        }
+        Phase::Closing(_) => edge.last.clone(),
+        Phase::Hidden => None,
+    };
+    if let Some((buf, at)) = shown {
+        out.extend(image_fx(renderer, v, &buf, at, &fx(phase.e(), at)));
+    }
 }
 
 pub type BorderPiece<'a> = (&'a SolidColorBuffer, Point<i32, Logical>);
@@ -191,16 +251,41 @@ pub fn elements_with(renderer: &mut GlesRenderer, state: &mut State, view: Recta
     // Panels animate in when they open; while anything is moving, ask for the next frame.
     let anim_on = state.config.animations;
     let mut animating = false;
-    let mut opening = |edge: &mut crate::anim::Edge, open: bool, ms: u64| {
-        let e = if anim_on { edge.update(open, ms) } else { 1.0 };
-        animating |= e < 1.0;
-        e
+    use crate::anim::{self as anim, Phase};
+    let mut phase = |edge: &mut anim::Edge, open: bool, ms: u64, ease: fn(f32) -> f32| {
+        if !anim_on {
+            edge.reset(open);
+            return if open { Phase::Open(1.0) } else { Phase::Hidden };
+        }
+        let p = edge.update(open, ms, ease);
+        animating |= p.moving();
+        p
     };
-    let start_e = opening(&mut state.anims.start, state.start.open, crate::anim::START);
-    let ac_e = opening(&mut state.anims.action_center, state.action_center.open, crate::anim::ACTION_CENTER);
-    let flyout_e = opening(&mut state.anims.flyout, state.tray.flyout.is_some(), crate::anim::FLYOUT);
-    let tv_e = opening(&mut state.anims.task_view, state.desktops.open, crate::anim::TASK_VIEW);
-    let menu_e = opening(&mut state.anims.menu, state.menu.is_some(), crate::anim::MENU);
+    let start_p = phase(&mut state.anims.start, state.start.open, anim::START, anim::ease_out);
+    let ac_p = phase(&mut state.anims.action_center, state.action_center.open, anim::ACTION_CENTER, anim::ease_out);
+    let flyout_p = phase(&mut state.anims.flyout, state.tray.flyout.is_some(), anim::FLYOUT, anim::ease_out);
+    let tv_e = phase(&mut state.anims.task_view, state.desktops.open, anim::TASK_VIEW, anim::ease_out).e();
+    let menu_p = phase(&mut state.anims.menu, state.menu.is_some(), anim::MENU, anim::ease_out_quint);
+    let switcher_e = phase(&mut state.anims.switcher, state.switcher.is_some(), anim::SWITCHER, anim::ease_out_quint).e();
+    let toasts_open = state.toasts_visible();
+    let toasts_p = phase(&mut state.anims.toasts, toasts_open, anim::TOASTS, anim::ease_out);
+    // Switching desktops: the new one's windows slide in from the side it lies on.
+    let ws = state.wm.current_workspace;
+    if state.anims.last_workspace.is_some_and(|last| last != ws) && anim_on {
+        let dir = if state.anims.last_workspace.is_some_and(|last| last < ws) { 1 } else { -1 };
+        state.anims.desktop_switch = Some((std::time::Instant::now(), dir));
+    }
+    state.anims.last_workspace = Some(ws);
+    let desk_slide = state.anims.desktop_switch.and_then(|(t0, dir)| {
+        let p = anim::progress(t0, anim::DESKTOP_SWITCH);
+        if p >= 1.0 || !anim_on {
+            state.anims.desktop_switch = None;
+            return None;
+        }
+        animating = true;
+        let e = anim::ease_out(p);
+        Some(((dir as f32 * ow as f32 * 0.18 * (1.0 - e)).round() as i32, anim::ease_out_quint(p)))
+    });
     let focused = state.focused();
 
     // An app being dragged out of Start, just under the cursor.
@@ -236,9 +321,13 @@ pub fn elements_with(renderer: &mut GlesRenderer, state: &mut State, view: Recta
                     origin + tile.loc + Point::from(((tile.size.w - (crate::switcher::TILE_W - 20)) / 2, 30)),
                     (crate::switcher::TILE_W - 20, crate::switcher::THUMB_H).into(),
                 );
-                out.extend(live_thumbnail(renderer, &v, state, s, area, 1.0));
+                out.extend(live_thumbnail(renderer, &v, state, s, area, switcher_e));
             }
-            out.extend(image(renderer, &v, &panel, origin, Kind::Unspecified));
+            // Pops in: fades up from 94% about its centre.
+            let (w, h) = state.switcher.as_ref().unwrap().size();
+            let centre = origin + Point::from((w / 2, h / 2));
+            let fx = Fx { alpha: switcher_e, scale: 0.94 + 0.06 * switcher_e as f64, origin: centre, offset: (0, 0).into() };
+            out.extend(image_fx(renderer, &v, &panel, origin, &fx));
         }
     });
 
@@ -256,17 +345,19 @@ pub fn elements_with(renderer: &mut GlesRenderer, state: &mut State, view: Recta
 
     // Notification toasts, above the Action Center and flyouts.
     crate::supervisor::guard("toasts", || {
-        if let Some((buf, at)) = state.toasts_picture() {
-            out.extend(image(renderer, &v, &buf, at, Kind::Unspecified));
-        }
+        // Slide in from the right edge, and back out.
+        let now = state.toasts_picture();
+        panel_fx(renderer, &v, &mut out, &mut state.anims.toasts, toasts_p, now, |e, _| Fx::slide(e, 380.0 * (1.0 - e), 0.0));
     });
 
     // Task View: live window thumbnails over its picture.
     crate::supervisor::guard("task view", || {
         let desktops_at = state.desktops_rect().loc;
         if let Some(buf) = state.desktops_picture() {
+            // Windows fly from where they are into their place in the grid.
             for (s, area) in state.task_view_thumbs() {
-                out.extend(live_thumbnail(renderer, &v, state, &s, area, tv_e));
+                let from = state.wm.find(&s).map(|w| w.geometry()).filter(|_| tv_e < 1.0).unwrap_or(area);
+                out.extend(live_thumbnail(renderer, &v, state, &s, crate::anim::lerp_rect(from, area, tv_e), 1.0));
             }
             out.extend(image_fx(renderer, &v, &buf, desktops_at, &Fx::fade(tv_e)));
         }
@@ -274,20 +365,18 @@ pub fn elements_with(renderer: &mut GlesRenderer, state: &mut State, view: Recta
 
     // Action Center (notifications).
     crate::supervisor::guard("action center", || {
-        let action_center_at = state.action_center_rect().loc;
-        if let Some(buf) = state.action_center_picture() {
-            // Slides in from the right edge.
-            let w = state.action_center_rect().size.w as f32;
-            out.extend(image_fx(renderer, &v, &buf, action_center_at, &Fx::slide(1.0, w * (1.0 - ac_e), 0.0)));
-        }
+        // Slides in from the right edge, and back out.
+        let r = state.action_center_rect();
+        let now = state.action_center_picture().map(|b| (b, r.loc));
+        let w = r.size.w as f32;
+        panel_fx(renderer, &v, &mut out, &mut state.anims.action_center, ac_p, now, |e, _| Fx::slide(e.sqrt(), w * (1.0 - e), 0.0));
     });
 
     // Tray flyout (volume/brightness slider), above the taskbar.
     crate::supervisor::guard("tray flyout", || {
         let flyout_at = state.flyout_rect().loc;
-        if let Some(buf) = state.flyout_picture().cloned() {
-            out.extend(image_fx(renderer, &v, &buf, flyout_at, &Fx::slide(flyout_e, 0.0, 16.0 * (1.0 - flyout_e))));
-        }
+        let now = state.flyout_picture().cloned().map(|b| (b, flyout_at));
+        panel_fx(renderer, &v, &mut out, &mut state.anims.flyout, flyout_p, now, |e, _| Fx::slide(e, 0.0, 36.0 * (1.0 - e)));
     });
 
     // Snipping overlay: everything dimmed except the selection.
@@ -301,11 +390,14 @@ pub fn elements_with(renderer: &mut GlesRenderer, state: &mut State, view: Recta
 
     // Our right-click menu.
     crate::supervisor::guard("context menu", || {
-        if let Some(m) = state.menu.as_mut() {
-            let pos = m.pos;
-            let buf = m.picture(state.font.as_ref()).clone();
-            out.extend(image_fx(renderer, &v, &buf, pos, &Fx::fade(menu_e)));
-        }
+        // Grows out of the point it was opened at.
+        let now = state.menu.as_mut().map(|m| (m.picture(state.font.as_ref()).clone(), m.pos));
+        panel_fx(renderer, &v, &mut out, &mut state.anims.menu, menu_p, now, |e, at| Fx {
+            alpha: e,
+            scale: 0.9 + 0.1 * e as f64,
+            origin: at,
+            offset: (0, 0).into(),
+        });
     });
 
     // X11 menus and tooltips, above everything but the cursor.
@@ -325,6 +417,7 @@ pub fn elements_with(renderer: &mut GlesRenderer, state: &mut State, view: Recta
     crate::supervisor::guard("start menu", || {
         if state.start.open {
             let height = (oh - TASKBAR_H).min(620);
+            let _ = &start_p;
             let items = state.start_rows();
             let hover = match &state.hover {
                 Hover::Start(h) => Some(h.clone()),
@@ -350,10 +443,12 @@ pub fn elements_with(renderer: &mut GlesRenderer, state: &mut State, view: Recta
                 state.start.menu = Some(ui::draw_start_menu(state.font.as_ref(), &mut state.icons, key));
             }
             let menu = state.start.menu.as_ref().unwrap();
-            // Rises out of the taskbar.
-            let fx = Fx::slide(start_e, 0.0, 40.0 * (1.0 - start_e));
-            out.extend(image_fx(renderer, &v, &menu.buffer, (0, oh - TASKBAR_H - height).into(), &fx));
+            let now = Some((menu.buffer.clone(), Point::from((0, oh - TASKBAR_H - height))));
+            // Rises out of the taskbar, and sinks back into it.
+            panel_fx(renderer, &v, &mut out, &mut state.anims.start, start_p, now, |e, _| Fx::slide(e.sqrt(), 0.0, 110.0 * (1.0 - e)));
             let _ = MENU_W;
+        } else {
+            panel_fx(renderer, &v, &mut out, &mut state.anims.start, start_p, None, |e, _| Fx::slide(e, 0.0, 60.0 * (1.0 - e)));
         }
     });
 
@@ -400,13 +495,37 @@ pub fn elements_with(renderer: &mut GlesRenderer, state: &mut State, view: Recta
         out.push(Elem::Solid(SolidColorRenderElement::from_buffer(&state.snap_buf, v.px(z.loc), scale, 1.0, Kind::Unspecified)));
     }
 
+    let taskbar_shown = state.taskbar_shown();
+    // Where each window's taskbar button is, for minimizing into it and restoring out of it.
+    let buttons: Vec<(WlSurface, Point<i32, Logical>)> = state
+        .taskbar
+        .as_ref()
+        .filter(|_| taskbar_shown)
+        .map(|bar| {
+            let mut out = Vec::new();
+            for (r, hit) in &bar.hits {
+                if let ui::TaskbarHit::Button(i) = hit {
+                    let centre = Point::from((r.loc.x + r.size.w / 2, oh - TASKBAR_H + r.loc.y + r.size.h / 2));
+                    for s in bar.key.items.get(*i).map(|it| it.windows.as_slice()).unwrap_or_default() {
+                        out.push((s.clone(), centre));
+                    }
+                }
+            }
+            out
+        })
+        .unwrap_or_default();
     // Windoze, top to bottom (only current workspace).
     let font = state.font.as_ref();
     let icons = &mut state.icons;
     let apps = &state.apps;
     // A window being minimized is still drawn (shrinking away) until its animation ends.
     for w in state.wm.windows.iter_mut().rev().filter(|w| (!w.minimized || w.vanish.is_some()) && w.mapped && w.workspace == state.wm.current_workspace) {
-        let fx = window_fx(w, anim_on, &mut animating).unwrap_or(Fx::fade(1.0));
+        let button = buttons.iter().find(|(s, _)| s == w.surface()).map(|(_, p)| *p);
+        let mut fx = window_fx(w, anim_on, button, &mut animating).unwrap_or(Fx::fade(1.0));
+        if let Some((dx, alpha)) = desk_slide {
+            fx.offset.x += dx;
+            fx.alpha *= alpha;
+        }
         if w.minimized && w.vanish.is_none() {
             continue;
         }

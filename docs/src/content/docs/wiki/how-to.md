@@ -131,9 +131,11 @@ vide-config set taskbar-bg FF123456
 
 ## Enable/Disable Animations
 
-```bash
-vide-config set window-animation-duration 0  # Disable
-vide-config set window-animation-duration 150  # Enable (ms)
+Settings → Ease of Access → Display → **Show animations**, or in
+`~/.config/vide-de/settings.conf` (applies within a second):
+
+```ini
+animations=false
 ```
 
 ## Configure Snip Magnifier

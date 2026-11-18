@@ -493,6 +493,7 @@ impl State {
                 if restored {
                     w.appear = Some(Instant::now());
                     w.vanish = None;
+                    w.restored = true;
                 }
                 w.minimized = false;
                 // Focusing a window on another workspace takes you there, so focus is never invisible.
@@ -1199,6 +1200,7 @@ impl XdgActivationHandler for State {
             if w.minimized {
                 w.appear = Some(Instant::now());
                 w.vanish = None;
+                w.restored = true;
             }
             w.minimized = false;
             if ws != self.wm.current_workspace {

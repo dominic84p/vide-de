@@ -88,8 +88,12 @@ pub struct Window {
     pub on_top: bool,
     /// When it opened or came back from the taskbar, for the zoom-in (see anim.rs).
     pub appear: Option<std::time::Instant>,
-    /// When it was minimized: it's drawn shrinking away until the animation ends.
+    /// When it was minimized: it's drawn flying into its taskbar button until the animation ends.
     pub vanish: Option<std::time::Instant>,
+    /// `appear` is a restore from the taskbar: it grows out of its button, not in place.
+    pub restored: bool,
+    /// Maximized, restored or snapped: when, and the frame it had before, to glide from.
+    pub morph: Option<(std::time::Instant, Rectangle<i32, Logical>)>,
 }
 
 impl Window {
@@ -344,6 +348,8 @@ impl Wm {
             on_top: false,
             appear: None,
             vanish: None,
+            restored: false,
+            morph: None,
         });
         self.restack();
     }
@@ -497,6 +503,7 @@ impl Wm {
         let Some(w) = self.find_mut(surface) else { return };
         if first_map {
             w.appear = Some(std::time::Instant::now());
+            w.restored = false;
         }
         w.mapped = true;
         if let Some((ws, pgeom)) = parent_info {
@@ -657,6 +664,7 @@ impl Wm {
             w.configure(None, &[(Flag::Maximized, false)]);
         }
         let restore = w.snapped.unwrap_or_else(|| restorable(w.geometry()));
+        w.morph = Some((std::time::Instant::now(), w.frame()));
         w.snapped = Some(restore);
         w.anchor = None;
         let title = if w.ssd { TITLE_H } else { 0 };
@@ -676,6 +684,7 @@ impl Wm {
         if w.maximized.is_some() || w.fullscreen.is_some() {
             return;
         }
+        w.morph = Some((std::time::Instant::now(), w.frame()));
         // Restore to the pre-snap size, not the snapped one.
         w.maximized = Some(w.snapped.take().unwrap_or_else(|| restorable(w.geometry())));
         w.anchor = None;
@@ -726,6 +735,11 @@ impl Wm {
 
     pub fn toggle_maximize(&mut self, surface: &WlSurface, area: Rectangle<i32, Logical>) {
         if self.find(surface).is_some_and(|w| w.maximized.is_some()) {
+            // Only here, not in `unmaximize`: dragging a maximized window off its titlebar
+            // restores it under the pointer, and gliding there would fight the drag.
+            if let Some(w) = self.find_mut(surface) {
+                w.morph = Some((std::time::Instant::now(), w.frame()));
+            }
             self.unmaximize(surface);
         } else {
             self.maximize(surface, area);
