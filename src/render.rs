@@ -343,6 +343,13 @@ pub fn elements_with(renderer: &mut GlesRenderer, state: &mut State, view: Recta
         out.push(Elem::Solid(SolidColorRenderElement::from_buffer(&state.dim, v.px(view.loc), scale, 1.0, Kind::Unspecified)));
     }
 
+    // The volume/brightness overlay from the media keys.
+    crate::supervisor::guard("osd", || {
+        if let Some((buf, at, alpha)) = state.osd_picture() {
+            out.extend(image_fx(renderer, &v, &buf, at, &Fx::fade(alpha)));
+        }
+    });
+
     // Notification toasts, above the Action Center and flyouts.
     crate::supervisor::guard("toasts", || {
         // Slide in from the right edge, and back out.

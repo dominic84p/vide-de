@@ -223,6 +223,7 @@ pub struct State {
     pub wallpapers: Vec<(Size<i32, Logical>, MemoryRenderBuffer)>,
     /// When Start, the Action Center and other panels opened, for their slide-in.
     pub anims: crate::anim::Anims,
+    pub osd: crate::osd::Osd,
     pub hover: Hover,
     pub clock: (String, String),
     pub action_center: ActionCenter,
@@ -369,6 +370,7 @@ impl State {
             snip: None,
             wallpapers: Vec::new(),
             anims: Default::default(),
+            osd: Default::default(),
             hover: Hover::None,
             clock,
             action_center: ActionCenter::default(),

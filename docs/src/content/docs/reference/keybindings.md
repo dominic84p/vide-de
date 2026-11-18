@@ -76,9 +76,9 @@ description: 'Complete keyboard shortcut list'
 | `XF86AudioStop` | Stop playback |
 | `XF86MonBrightnessUp` | Brightness +10% |
 | `XF86MonBrightnessDown` | Brightness -10% |
-| `XF86AudioPlay` | Play/Pause |
-| `XF86AudioNext` | Next track |
-| `XF86AudioPrev` | Previous track |
+
+The volume and brightness keys show Windoze 10's overlay in the top-left corner: the new level on
+a vertical bar, fading out about 1.6 s after the last press.
 
 ## Mouse Bindings
 

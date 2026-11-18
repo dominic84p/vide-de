@@ -513,8 +513,14 @@ impl State {
             Action::CloseDesktops => self.close_desktops(),
             Action::ToggleActionCenter => self.toggle_action_center(),
             Action::CloseActionCenter => self.close_action_center(),
-            Action::Volume(d) => self.set_volume(self.tray.volume + d),
-            Action::Mute => self.toggle_mute(),
+            Action::Volume(d) => {
+                self.set_volume(self.tray.volume + d);
+                self.show_osd(crate::osd::OsdKind::Volume);
+            }
+            Action::Mute => {
+                self.toggle_mute();
+                self.show_osd(crate::osd::OsdKind::Volume);
+            }
             // Like Windoze, play/pause reaches the player even when it isn't focused: the first
             // MPRIS player on the bus (a shell command, so we never wait on D-Bus).
             Action::Media(method) => self.spawn(&format!(
@@ -523,7 +529,10 @@ impl State {
                  [ -n \"$p\" ] && dbus-send --session --type=method_call --dest=\"$p\" /org/mpris/MediaPlayer2 \
                  org.mpris.MediaPlayer2.Player.{method}"
             )),
-            Action::Brightness(d) => self.set_brightness(self.tray.brightness + d),
+            Action::Brightness(d) => {
+                self.set_brightness(self.tray.brightness + d);
+                self.show_osd(crate::osd::OsdKind::Brightness);
+            }
             Action::Screenshot { region } => self.start_screenshot(region),
             Action::Quit => self.running = false,
             Action::Vt(n) => self.pending_vt = Some(n),

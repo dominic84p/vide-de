@@ -13,6 +13,7 @@ mod layers;
 mod menu;
 mod monitors;
 mod notifications;
+mod osd;
 mod pins;
 mod render;
 mod screenshot;
