@@ -269,6 +269,8 @@ pub fn elements_with(renderer: &mut GlesRenderer, state: &mut State, view: Recta
     let switcher_e = phase(&mut state.anims.switcher, state.switcher.is_some(), anim::SWITCHER, anim::ease_out_quint).e();
     let toasts_open = state.toasts_visible();
     let toasts_p = phase(&mut state.anims.toasts, toasts_open, anim::TOASTS, anim::ease_out);
+    let preview_open = state.preview.shown.is_some();
+    let preview_e = phase(&mut state.anims.preview, preview_open, anim::FLYOUT, anim::ease_out).e();
     // Switching desktops: the new one's windows slide in from the side it lies on.
     let ws = state.wm.current_workspace;
     if state.anims.last_workspace.is_some_and(|last| last != ws) && anim_on {
@@ -377,6 +379,17 @@ pub fn elements_with(renderer: &mut GlesRenderer, state: &mut State, view: Recta
         let now = state.action_center_picture().map(|b| (b, r.loc));
         let w = r.size.w as f32;
         panel_fx(renderer, &v, &mut out, &mut state.anims.action_center, ac_p, now, |e, _| Fx::slide(e.sqrt(), w * (1.0 - e), 0.0));
+    });
+
+    // Taskbar previews: live thumbnails over the strip's picture, fading in.
+    crate::supervisor::guard("taskbar previews", || {
+        if let Some((buf, at, thumbs)) = state.preview_picture() {
+            let lift = Point::from((0, (14.0 * (1.0 - preview_e)).round() as i32));
+            for (s, area) in thumbs {
+                out.extend(live_thumbnail(renderer, &v, state, &s, Rectangle::new(area.loc + lift, area.size), preview_e));
+            }
+            out.extend(image_fx(renderer, &v, &buf, at, &Fx::slide(preview_e, 0.0, lift.y as f32)));
+        }
     });
 
     // Tray flyout (volume/brightness slider), above the taskbar.

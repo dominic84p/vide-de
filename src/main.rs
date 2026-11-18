@@ -15,6 +15,7 @@ mod menu;
 mod monitors;
 mod notifications;
 mod osd;
+mod preview;
 mod pins;
 mod render;
 mod screenshot;

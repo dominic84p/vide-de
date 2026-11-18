@@ -108,6 +108,14 @@ fn on_pin_click(&mut self, pin: &PinEntry, button: MouseButton) {
 }
 ```
 
+## Window Previews (`preview.rs`)
+
+Rest the pointer on a running app's button for about half a second and a strip of live
+thumbnails of its windows rises above the button, like Windoze's. Click a thumbnail to switch
+to that window, or the ✕ on its title to close it. Moving onto another running app's button
+swaps the strip at once; moving anywhere else, or clicking, puts it away. It doesn't show while
+Start, a menu, a flyout, the Action Center or Task View is open.
+
 ## Pin Menu
 
 ```

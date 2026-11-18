@@ -154,6 +154,7 @@ pub struct Anims {
     pub menu: Edge,
     pub switcher: Edge,
     pub toasts: Edge,
+    pub preview: Edge,
     /// Switching desktops: when, and which way the new one slides in from (-1 left, 1 right).
     pub desktop_switch: Option<(Instant, i32)>,
     pub last_workspace: Option<usize>,

@@ -224,6 +224,8 @@ enum Target {
     ActionCenter(crate::notifications::ActionCenterHit),
     /// Over a notification toast.
     Toast(crate::notifications::ToastHit),
+    /// Over the taskbar's window previews, maybe on one.
+    Preview(Option<crate::preview::PreviewHit>),
     Start(StartHit),
     Taskbar(TaskbarHit),
     Window(Hit),
@@ -829,6 +831,9 @@ impl State {
         if let Some(hit) = self.toast_at(pos) {
             return Target::Toast(hit);
         }
+        if let Some(hit) = self.preview_at(pos) {
+            return Target::Preview(hit);
+        }
         if self.desktops.open && self.desktops_rect().to_f64().contains(pos) {
             return Target::Desktops(self.task_view_at(pos));
         }
@@ -934,6 +939,19 @@ impl State {
                 Target::Toast(h) => h.clone(),
                 _ => crate::notifications::ToastHit::Nothing,
             });
+            let preview_hover = match &target {
+                Target::Preview(h) => *h,
+                _ => None,
+            };
+            if self.preview.hover != preview_hover {
+                self.preview.hover = preview_hover;
+                self.needs_redraw = true;
+            }
+            let button = match &target {
+                Target::Taskbar(TaskbarHit::Button(i)) => Some((*i, pos)),
+                _ => None,
+            };
+            self.preview_track(button, matches!(target, Target::Preview(_)));
             let fly_hover = if self.flyout_rect().to_f64().contains(pos) { self.flyout_action(pos) } else { None };
             if self.tray.hover != fly_hover {
                 self.tray.hover = fly_hover;
@@ -943,7 +961,7 @@ impl State {
                 self.action_center.panel = None;
             }
             self.hover = match target {
-                Target::Menu(_) | Target::Desktops(_) | Target::ActionCenter(_) | Target::Toast(_) => Hover::None,
+                Target::Menu(_) | Target::Desktops(_) | Target::ActionCenter(_) | Target::Toast(_) | Target::Preview(_) => Hover::None,
                 Target::Start(h) => Hover::Start(h),
                 Target::Taskbar(h) => Hover::Taskbar(h),
                 Target::Window(Hit::Client(s, origin)) => {
@@ -1068,6 +1086,15 @@ impl State {
         let target = self.target(pos);
         self.needs_redraw = true;
 
+        // The taskbar previews take their own clicks; any other click puts them away.
+        if let Target::Preview(hit) = target {
+            if let (true, Some(hit)) = (left, hit) {
+                self.preview_click(hit);
+            }
+            return;
+        }
+        self.preview_hide();
+
         // A notification toast takes its own clicks.
         if let Target::Toast(hit) = &target {
             if left {
@@ -1088,7 +1115,7 @@ impl State {
             if !matches!(
                 target,
                 Target::Taskbar(
-                    TaskbarHit::Volume | TaskbarHit::Brightness | TaskbarHit::Network
+                    TaskbarHit::Volume | TaskbarHit::Brightness | TaskbarHit::Network | TaskbarHit::Clock
                 )
             ) {
                 self.close_flyout();
@@ -1283,7 +1310,7 @@ impl State {
                 }
                 forward(self);
             }
-            Target::Menu(_) | Target::Desktops(_) | Target::ActionCenter(_) | Target::Toast(_) => {}
+            Target::Menu(_) | Target::Desktops(_) | Target::ActionCenter(_) | Target::Toast(_) | Target::Preview(_) => {}
         }
     }
 
