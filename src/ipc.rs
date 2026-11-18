@@ -4,6 +4,8 @@
 //! - `snip`: start a region screenshot (Snip & Sketchy's "New")
 //! - `screenshot`: capture the whole screen
 //! - `copy-png <path>`: put a PNG on the clipboard
+//! - `emoji <text>`: Emoji Panic's pick, typed into the app Win+. was pressed in. Taken once
+//!   per Win+. (within a few minutes of it), so it can't be used to make apps paste at will
 //! - with `VIBE_TEST_INPUT=1` only: `pointer-move X Y`, `pointer-click [left|right|middle]`, `pointer-down`/`pointer-up`,
 //!   `key ctrl+shift+t`, `type text`, `pointer-pos`, and `screenshot /path.png` (for the nested test script)
 //! - `windows`: replies with one line per window, `id<TAB>pid<TAB>minimized<TAB>app_id<TAB>title`
@@ -104,6 +106,7 @@ fn handle_client(state: &mut State, stream: UnixStream) {
             let msg = format!("{} {}\n", state.output_size.w, state.output_size.h);
             let _ = (&stream).write_all(msg.as_bytes());
         }
+        "emoji" => state.type_emoji(arg),
         "copy-png" => match std::fs::read(arg) {
             Ok(bytes) => {
                 state.set_clipboard_bytes(vec!["image/png".into()], bytes);
@@ -287,5 +290,36 @@ impl State {
             }
         }
         out
+    }
+}
+
+impl State {
+    /// Emoji Panic picked `text`: paste it into the window Win+. was pressed in, once the
+    /// panel has closed and that window has its focus back. Apps take typed text only from
+    /// the keyboard, and there's no key for an emoji, so it goes by the clipboard.
+    fn type_emoji(&mut self, text: &str) {
+        use smithay::reexports::calloop::timer::{TimeoutAction, Timer};
+        let Some((target, at)) = self.emoji_request.take() else {
+            return tracing::warn!("control socket: emoji without Win+.");
+        };
+        if at.elapsed() > Duration::from_secs(600) || text.is_empty() || text.len() > 64 {
+            return;
+        }
+        let mimes = ["text/plain;charset=utf-8", "text/plain", "UTF8_STRING"].map(String::from).to_vec();
+        self.set_clipboard_bytes(mimes, text.as_bytes().to_vec());
+        let Some(target) = target else { return };
+        let _ = self.loop_handle.insert_source(Timer::from_duration(Duration::from_millis(150)), move |_, _, state| {
+            if state.wm.find(&target).is_some() {
+                state.focus(Some(target.clone()), SERIAL_COUNTER.next_serial());
+                let _ = state.loop_handle.insert_source(Timer::from_duration(Duration::from_millis(120)), |_, _, state| {
+                    state.key_event(29, true);
+                    state.key_event(47, true);
+                    state.key_event(47, false);
+                    state.key_event(29, false);
+                    TimeoutAction::Drop
+                });
+            }
+            TimeoutAction::Drop
+        });
     }
 }

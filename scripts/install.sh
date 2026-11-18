@@ -19,6 +19,7 @@ APPS=(
   task-mangler
   snip-and-sketchy
   window-shopping
+  emoji-panic
 )
 COMP=(vibe-comp)
 

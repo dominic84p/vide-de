@@ -13,7 +13,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OUT="$ROOT/target/bundle"
 IMAGE=docker.io/library/ubuntu:24.04
-BINS=(vibe-comp vide-desktop vide-settings vide-about vide-portal powerslop file-exploder task-mangler snip-and-sketchy window-shopping)
+BINS=(vibe-comp vide-desktop vide-settings vide-about vide-portal powerslop file-exploder task-mangler snip-and-sketchy window-shopping emoji-panic)
 
 mkdir -p "$HOME/.cargo/registry"
 echo "Building in $IMAGE (the first run downloads the image and Rust, a few minutes)..."

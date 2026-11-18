@@ -16,6 +16,7 @@ VIDE-DE includes several built-in applications, registered as `.desktop` entries
 | File Exploder | `file-exploder` | `file-exploder.desktop` | Files | `Super+E` |
 | Task Mangler | `task-mangler` | `task-mangler.desktop` | System | `Ctrl+Shift+Esc` |
 | Snip & Sketchy | `snip-and-sketchy` | `snip-and-sketchy.desktop` | Graphics | `Win+Shift+S` |
+| Emoji Panic | `emoji-panic` | `emoji-panic.desktop` | Utility | `Win+.` |
 | About VIDE-DE | `vide-about` | `vide-about.desktop` | Settings | — |
 
 All apps are **separate crates** in the workspace, built with **egui** (except compositor).

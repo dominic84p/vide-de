@@ -1,0 +1,11 @@
+[package]
+name = "emoji-panic"
+version = "0.1.0"
+edition = "2024"
+description = "Emoji Panic: the emoji panel (Win+.), like Windoze's, but panicking"
+
+[dependencies]
+vide-fonts = { path = "../fonts" }
+eframe = "0.37"
+emojis = "0.6"
+vide-config = { path = "../config" }

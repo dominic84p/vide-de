@@ -49,6 +49,7 @@ description: 'Complete keyboard shortcut list'
 | `Super+Enter` | Launch terminal (konsole) |
 | `Super+E` | Launch File Exploder |
 | `Super+V` | Clipboard history: the last 25 things you copied (text and images, screenshots included), newest first. Pick one with the mouse or arrows + `Enter` and it's pasted into the focused app. **Clear all** empties it. Password-manager copies are never kept. Nested: `Alt+V` |
+| `Super+.` / `Super+;` | Emoji Panic, the emoji panel: search or browse by category, click one (or `Enter` for the first match) and it's typed into the app you were in, through the clipboard. `Esc` closes. Nested: `Alt+.` |
 | `Super+Shift+Esc` | Launch Task Mangler |
 | `Super+Shift+S` | Region snip (screenshot) |
 | `PrtSc` | Fullscreen screenshot |

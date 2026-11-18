@@ -163,6 +163,7 @@ const BUILTIN: &[(&str, &str, &str, &str, &str, &str)] = &[
     ("powerslop", "powerslop", "PowerSlop", "A shell, but vibecoded", "utilities-terminal", "System;TerminalEmulator;"),
     ("task-mangler", "task-mangler", "Task Mangler", "See what's running. Like Task Manager, but it mangles", "utilities-system-monitor", "System;Monitor;"),
     ("snip-and-sketchy", "snip-and-sketchy", "Snip & Sketchy", "Mark up your screenshots. Like Snip & Sketch, but sketchier", "applets-screenshooter", "Utility;Graphics;"),
+    ("emoji-panic", "emoji-panic", "Emoji Panic", "Emoji for any app (Win+.). Like the emoji panel, but panicking", "face-smile", "Utility;"),
     ("file-exploder", "file-exploder", "File Exploder", "Your files. Like File Explorer, but it might go off", "system-file-manager", "System;FileManager;"),
     ("window-shopping", "window-shopping", "Window Shopping", "Get apps, Flatpaks, and updates for your PC", "system-software-install", "System;PackageManager;"),
 ];

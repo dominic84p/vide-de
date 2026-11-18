@@ -62,6 +62,8 @@ enum Action {
     PinPicker,
     /// Win+V.
     ClipboardHistory,
+    /// Win+. (or Win+;): the emoji panel.
+    Emoji,
     /// Arrow keys and Enter in an open menu.
     MenuStep(i32),
     MenuPick,
@@ -168,6 +170,7 @@ fn bind(super_mod: bool, mods: &ModifiersState, sym: Keysym) -> Option<Action> {
         Keysym::e if mods.shift => Some(Action::Quit),
         Keysym::p | Keysym::P if mods.shift => Some(Action::PinPicker),
         Keysym::v if !mods.shift => Some(Action::ClipboardHistory),
+        Keysym::period | Keysym::semicolon => Some(Action::Emoji),
         // Workspace switching: Mod+1-9,0 (0 = workspace 10)
         // Mod+Shift+1-9,0 to move focused window to workspace (must come first)
         Keysym::_1 if mods.shift => Some(Action::MoveToWorkspace(0)),
@@ -524,6 +527,12 @@ impl State {
             }
             Action::CloseMenu => self.close_menu(),
             Action::ClipboardHistory => self.open_clipboard_history(),
+            Action::Emoji => {
+                if let Some(app) = own_app("emoji-panic") {
+                    self.emoji_request = Some((self.focused(), std::time::Instant::now()));
+                    self.spawn(&app);
+                }
+            }
             Action::MenuStep(d) => self.menu_step(d),
             Action::MenuPick => self.menu_pick(),
             Action::CancelSnip => self.cancel_snip(),

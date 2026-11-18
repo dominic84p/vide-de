@@ -39,8 +39,8 @@ the WM in `src/wm.rs` is deliberately our own.
 - `menu.rs`: right-click menus. `tray.rs`: volume/brightness. `screenshot.rs`: PrtSc and snip.
 - `sni.rs`: app tray icons. We are the StatusNotifierWatcher + host, on a D-Bus thread
   talking to the main loop over channels. `desktops.rs`: Task View panel.
-- `about/`, `settings/`, `powerslop/`, `exploder/`, `mangler/`: our own apps
-  (`vide-about`, `vide-settings`, `powerslop`, `file-exploder`, `task-mangler`), separate egui programs. `apps::install_builtin` registers them as
+- `about/`, `settings/`, `powerslop/`, `exploder/`, `mangler/`, `emoji/`: our own apps
+  (`vide-about`, `vide-settings`, `powerslop`, `file-exploder`, `task-mangler`, `emoji-panic`), separate egui programs. `apps::install_builtin` registers them as
   .desktop entries on startup. PowerSlop uses egui 0.31 (egui_term's version).
   Our apps are Windoze puns styled like their Windoze originals.
 - `health.rs`: why a freeze leaves a trace. Pings every app's xdg client and logs the ones that stop

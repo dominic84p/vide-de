@@ -259,6 +259,9 @@ pub struct State {
     /// `VIBE_TEST_INPUT=1`: the control socket may inject input and write screenshots to a path.
     /// Off in a normal session, where a socket that can type for you shouldn't exist.
     pub test_control: bool,
+    /// Win+. was pressed: the window to type the emoji into, and when. Emoji Panic's pick is
+    /// accepted once while this is set, so nothing else can make apps paste.
+    pub emoji_request: Option<(Option<WlSurface>, Instant)>,
     /// Where the next screenshot goes instead of ~/Pictures/Screenshots (test control only).
     pub screenshot_path: Option<std::path::PathBuf>,
     /// Command to launch once the session is fully up (`VIBE_STARTUP`).
@@ -393,6 +396,7 @@ impl State {
             pings: Default::default(),
             display_dirty: false,
             test_control: std::env::var_os("VIBE_TEST_INPUT").is_some(),
+            emoji_request: None,
             screenshot_path: None,
             startup: None,
             running: true,
