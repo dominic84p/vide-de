@@ -224,6 +224,7 @@ pub struct State {
     /// When Start, the Action Center and other panels opened, for their slide-in.
     pub anims: crate::anim::Anims,
     pub osd: crate::osd::Osd,
+    pub media: crate::media::Media,
     pub preview: crate::preview::Preview,
     pub hover: Hover,
     pub clock: (String, String),
@@ -375,6 +376,7 @@ impl State {
             wallpapers: Vec::new(),
             anims: Default::default(),
             osd: Default::default(),
+            media: Default::default(),
             preview: Default::default(),
             hover: Hover::None,
             clock,

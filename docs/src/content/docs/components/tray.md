@@ -15,7 +15,7 @@ everything it shows. Any click outside closes it.
 
 | Button | Flyout | What's in it |
 |--------|--------|--------------|
-| Speaker | Volume | A slider (drag it, or scroll over the speaker); click the speaker to mute. Talks to PipeWire with `wpctl`. |
+| Speaker | Volume | A slider (drag it, or scroll over the speaker); click the speaker to mute. Talks to PipeWire with `wpctl`. When something plays, a card under it (`media.rs`) shows the title and artist with previous, play/pause and next. It asks MPRIS over D-Bus every 2 s while the flyout is open, preferring a player that is playing. |
 | Sun | Brightness | A slider. Desktop monitors have no backlight, so brightness is a black veil the compositor draws over everything below the cursor (`State::dim`), never darker than 20%. |
 | Network | Network | Windoze 10's network list from NetworkManager (`nmcli`): connect, disconnect, passwords, Wi-Fi / airplane / hotspot toggles. It rescans when opened. |
 | Clock | Calendar (`calendar.rs`) | The time, large, and the full date, over a month calendar with today filled in. The arrows or the mouse wheel page through months; **Today** comes back. |
@@ -39,5 +39,6 @@ hides while a tray flyout is open, since the flyout already shows the level.
 
 - `calendar.rs`: the calendar flyout's drawing and month maths
 - `osd.rs`: the key overlay
+- `media.rs`: what's playing (MPRIS), for the volume flyout
 - `sni.rs`: app tray icons
 - `input.rs`: media keys, flyout clicks and scrolling

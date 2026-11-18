@@ -28,6 +28,8 @@ use crate::{
 
 pub const FLYOUT_W: i32 = 360;
 pub const FLYOUT_H: i32 = 96;
+/// The now-playing card under the volume slider, when something plays.
+const MEDIA_H: i32 = 88;
 /// The network flyout, when the screen is tall enough.
 const NET_H: i32 = 560;
 const SLIDER_X: i32 = 60;
@@ -267,6 +269,7 @@ impl State {
         let h = match self.tray.flyout {
             Some(Flyout::Network) => NET_H.min(self.output_size.h - TASKBAR_H - 16),
             Some(Flyout::Calendar) => crate::calendar::HEIGHT,
+            Some(Flyout::Volume) if self.media.now.is_some() => FLYOUT_H + MEDIA_H,
             _ => FLYOUT_H,
         };
         let x = self.output_size.w - FLYOUT_W - 8;
@@ -347,6 +350,9 @@ impl State {
                 if let Some((v, m)) = read_volume() {
                     self.tray.volume = v;
                     self.tray.muted = m;
+                }
+                if self.tray.flyout.is_some() {
+                    self.media_watch();
                 }
             }
             Flyout::Network => {
@@ -560,6 +566,13 @@ impl State {
             return;
         }
         let local = p - self.flyout_rect().loc.to_f64();
+        if f == Flyout::Volume && local.y >= FLYOUT_H as f64 {
+            let at = local.to_i32_round();
+            if let Some((_, method)) = media_buttons().into_iter().find(|(r, _)| r.contains(at)) {
+                self.media_command(method);
+            }
+            return;
+        }
         if f == Flyout::Volume && local.x < SLIDER_X as f64 - 8.0 {
             self.toggle_mute();
             return;
@@ -587,7 +600,7 @@ impl State {
         let h = self.flyout_rect().size.h;
         let t = &self.tray;
         let key = match f {
-            Flyout::Volume => format!("volume:{}:{}", (t.volume * 100.0).round(), t.muted),
+            Flyout::Volume => format!("volume:{}:{}:{h}:{:?}", (t.volume * 100.0).round(), t.muted, self.media.now),
             Flyout::Brightness => format!("brightness:{}", (t.brightness * 100.0).round()),
             Flyout::Network => format!(
                 "network:{h}:{:?}:{:?}:{:?}:{}:{}:{:?}:{:?}:{}",
@@ -602,7 +615,12 @@ impl State {
             c.outline(0, 0, c.w, c.h, th().border);
             let mut hits = Vec::new();
             match f {
-                Flyout::Volume | Flyout::Brightness => draw_slider(&mut c, self, f),
+                Flyout::Volume | Flyout::Brightness => {
+                    draw_slider(&mut c, self, f);
+                    if let (Flyout::Volume, Some(now), Some(font)) = (f, self.media.now.as_ref(), self.font.as_ref()) {
+                        draw_media(&mut c, font, now);
+                    }
+                }
                 Flyout::Network => hits = draw_network(&mut c, self),
                 Flyout::Calendar => {
                     if let Some(font) = self.font.as_ref() {
@@ -614,6 +632,47 @@ impl State {
         }
         self.tray.picture.as_ref().map(|(_, b, _)| b)
     }
+}
+
+/// The now-playing card's buttons, flyout-local: previous, play/pause, next.
+fn media_buttons() -> [(Rectangle<i32, Logical>, &'static str); 3] {
+    let y = FLYOUT_H + 38;
+    let x0 = FLYOUT_W - 16 - 3 * 40;
+    [(rect(x0, y, 40, 36), "Previous"), (rect(x0 + 40, y, 40, 36), "PlayPause"), (rect(x0 + 80, y, 40, 36), "Next")]
+}
+
+/// A filled triangle pointing right (`dir` 1) or left (-1), centred at (cx, cy).
+fn triangle(c: &mut Canvas, cx: i32, cy: i32, size: i32, dir: i32, color: crate::canvas::Rgba) {
+    for dx in 0..size {
+        let half = (size - dx) / 2;
+        let x = if dir > 0 { cx - size / 2 + dx } else { cx + size / 2 - dx };
+        c.rect(x, cy - half, 1, half * 2 + 1, color);
+    }
+}
+
+fn draw_media(c: &mut Canvas, font: &fontdue::Font, now: &crate::media::NowPlaying) {
+    let top = FLYOUT_H;
+    c.rect(0, top, FLYOUT_W, 1, th().divider);
+    let text_w = FLYOUT_W - 24 - 3 * 40 - 12;
+    let title = if now.title.is_empty() { "Unknown" } else { &now.title };
+    c.text(font, 14.0, 16, top + 10, 24, th().text, &ellipsize(font, 14.0, title, FLYOUT_W - 32));
+    c.text(font, 12.0, 16, top + 40, 32, th().text_dim, &ellipsize(font, 12.0, &now.artist, text_w));
+    let [prev, play, next] = media_buttons();
+    let col = th().text;
+    let mid = |r: &Rectangle<i32, Logical>| (r.loc.x + r.size.w / 2, r.loc.y + r.size.h / 2);
+    let (x, y) = mid(&prev.0);
+    c.rect(x - 7, y - 6, 2, 13, col);
+    triangle(c, x + 1, y, 11, -1, col);
+    let (x, y) = mid(&play.0);
+    if now.playing {
+        c.rect(x - 6, y - 7, 4, 15, col);
+        c.rect(x + 2, y - 7, 4, 15, col);
+    } else {
+        triangle(c, x + 1, y, 14, 1, col);
+    }
+    let (x, y) = mid(&next.0);
+    triangle(c, x - 1, y, 11, 1, col);
+    c.rect(x + 5, y - 6, 2, 13, col);
 }
 
 fn draw_slider(c: &mut Canvas, state: &State, f: Flyout) {

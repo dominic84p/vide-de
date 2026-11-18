@@ -11,6 +11,7 @@ mod icons;
 mod input;
 mod ipc;
 mod layers;
+mod media;
 mod menu;
 mod monitors;
 mod notifications;
