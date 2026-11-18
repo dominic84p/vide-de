@@ -557,7 +557,8 @@ impl Exploder {
         }
         let res = match runnable(&e.path) {
             Some(Run::Script(interp)) => run_in_terminal(&e.path, interp),
-            Some(Run::Program) => run_program(&e.path),
+            Some(Run::Program) => run_program(&e.path, self.notice.clone()),
+            Some(Run::Wine) => run_wine(&e.path),
             Some(Run::Launcher) => spawn(std::process::Command::new("gio").arg("launch").arg(&e.path)),
             None => spawn(std::process::Command::new("xdg-open").arg(&e.path)),
         };
@@ -3528,6 +3529,8 @@ enum Run {
     Script(Option<&'static str>),
     /// A native program or AppImage.
     Program,
+    /// A Windoze program, for Wine.
+    Wine,
     /// A .desktop launcher.
     Launcher,
 }
@@ -3542,6 +3545,9 @@ fn runnable(path: &Path) -> Option<Run> {
     let ext = path.extension().map(|e| e.to_string_lossy().to_lowercase()).unwrap_or_default();
     if ext == "desktop" {
         return Some(Run::Launcher);
+    }
+    if matches!(ext.as_str(), "exe" | "msi") {
+        return Some(Run::Wine);
     }
     let mut head = [0u8; 4];
     let n = std::fs::File::open(path).and_then(|mut f| f.read(&mut head)).unwrap_or(0);
@@ -3592,15 +3598,118 @@ fn run_in_terminal(path: &Path, interp: Option<&str>) -> std::io::Result<()> {
     spawn(cmd.args(argv).current_dir(dir))
 }
 
-fn run_program(path: &Path) -> std::io::Result<()> {
+/// Run a native program or AppImage. Command-line programs go to PowerSlop, where their
+/// output can be read; graphical ones run directly, watched for a few seconds so a program
+/// that dies at once says why instead of silently doing nothing.
+fn run_program(path: &Path, notice: Arc<Mutex<Option<String>>>) -> std::io::Result<()> {
     use std::os::unix::fs::PermissionsExt;
     let mut perm = std::fs::metadata(path)?.permissions();
     if perm.mode() & 0o100 == 0 {
         // Downloaded AppImages and binaries arrive without +x; double-click means "run it".
         perm.set_mode(perm.mode() | 0o111);
-        std::fs::set_permissions(path, perm)?;
+        std::fs::set_permissions(path, perm).map_err(|e| match e.kind() {
+            std::io::ErrorKind::PermissionDenied => std::io::Error::other("it isn't yours, so it can't be made runnable. Copy it to your home folder first"),
+            _ => e,
+        })?;
     }
-    spawn(std::process::Command::new(path).current_dir(path.parent().unwrap_or(Path::new("/"))))
+    let appimage = is_appimage(path);
+    if !appimage && !looks_graphical(path) {
+        return run_in_terminal(path, None);
+    }
+    launch_watched(path, appimage, false, notice)
+}
+
+/// Type 2 AppImages carry "AI\x02" right after the ELF magic; older ones are just named so.
+fn is_appimage(path: &Path) -> bool {
+    use std::io::Read;
+    let mut head = [0u8; 11];
+    let magic = std::fs::File::open(path).and_then(|mut f| f.read_exact(&mut head)).is_ok() && &head[8..11] == b"AI\x02";
+    magic || path.extension().is_some_and(|e| e.eq_ignore_ascii_case("appimage"))
+}
+
+/// Whether a native program draws windows: it links (or dlopens) a windowing or toolkit
+/// library. Command-line tools never mention one, so this is a good enough test to decide
+/// between a terminal and nothing.
+fn looks_graphical(path: &Path) -> bool {
+    use std::io::Read;
+    const NEEDLES: [&[u8]; 9] =
+        [b"libwayland-client", b"libX11", b"libxcb", b"libgtk", b"libQt", b"libSDL", b"libglfw", b"libEGL", b"libGL.so"];
+    let Ok(f) = std::fs::File::open(path) else { return true };
+    // Big programs (games, Electron) are graphical anyway; don't read gigabytes to find out.
+    let mut buf = Vec::new();
+    if f.take(96 << 20).read_to_end(&mut buf).is_err() || buf.len() >= 96 << 20 {
+        return true;
+    }
+    NEEDLES.iter().any(|n| buf.windows(n.len()).any(|w| w == *n))
+}
+
+/// Start a program with its errors going to a scratch file, and if it quits within a few
+/// seconds with a failure, report the reason. An AppImage that failed for want of FUSE
+/// (libfuse2 isn't installed by default on many distros) is retried extracted.
+fn launch_watched(path: &Path, appimage: bool, extract: bool, notice: Arc<Mutex<Option<String>>>) -> std::io::Result<()> {
+    use std::os::unix::process::CommandExt;
+    static RUNS: AtomicUsize = AtomicUsize::new(0);
+    let log = std::env::temp_dir().join(format!("exploder-run-{}-{}.log", std::process::id(), RUNS.fetch_add(1, Ordering::Relaxed)));
+    let err_file = std::fs::File::create(&log)?;
+    let mut cmd = std::process::Command::new(path);
+    cmd.current_dir(path.parent().unwrap_or(Path::new("/"))).process_group(0).stdin(std::process::Stdio::null()).stderr(err_file);
+    if extract {
+        cmd.env("APPIMAGE_EXTRACT_AND_RUN", "1");
+    }
+    let mut child = cmd.spawn().map_err(|e| match e.raw_os_error() {
+        Some(13) => std::io::Error::other("this drive doesn't allow running programs (mounted noexec). Copy it to your home folder first"),
+        Some(8) => std::io::Error::other("it isn't a program for this computer (wrong CPU type, or a damaged download)"),
+        _ => e,
+    })?;
+    let (path, name) = (path.to_path_buf(), path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default());
+    std::thread::spawn(move || {
+        let start = std::time::Instant::now();
+        let status = loop {
+            match child.try_wait() {
+                Ok(Some(s)) => break Some(s),
+                Ok(None) if start.elapsed() < Duration::from_secs(6) => std::thread::sleep(Duration::from_millis(100)),
+                _ => break None,
+            }
+        };
+        let errors = std::fs::read_to_string(&log).unwrap_or_default();
+        let _ = std::fs::remove_file(&log);
+        let Some(status) = status.filter(|s| !s.success()) else {
+            // Still running (or done fine): keep reaping it so it doesn't linger as a zombie.
+            let _ = child.wait();
+            return;
+        };
+        let lower = errors.to_lowercase();
+        if appimage && !extract && lower.contains("fuse") {
+            *notice.lock().unwrap() = Some(format!("Starting {name} without FUSE (install fuse2 for faster starts)..."));
+            if let Err(e) = launch_watched(&path, true, true, notice.clone()) {
+                *notice.lock().unwrap() = Some(format!("Couldn't run {name}: {e}"));
+            }
+            return;
+        }
+        let why = errors.lines().rev().map(str::trim).find(|l| !l.is_empty()).map(|l| l.chars().take(160).collect::<String>());
+        let how = match status.code() {
+            Some(c) => format!("quit with error {c}"),
+            None => "crashed".into(),
+        };
+        *notice.lock().unwrap() = Some(match why {
+            Some(w) => format!("{name} {how}: {w}"),
+            None => format!("{name} {how}"),
+        });
+    });
+    Ok(())
+}
+
+/// Windoze programs: with Wine, like double-clicking them on Windoze.
+fn run_wine(path: &Path) -> std::io::Result<()> {
+    let wine = std::env::var_os("PATH").and_then(|p| std::env::split_paths(&p).map(|d| d.join("wine")).find(|p| p.exists()));
+    let Some(wine) = wine else {
+        return Err(std::io::Error::other("Windoze programs need Wine (install the wine package)"));
+    };
+    let mut cmd = std::process::Command::new(wine);
+    if path.extension().is_some_and(|e| e.eq_ignore_ascii_case("msi")) {
+        cmd.arg("msiexec").arg("/i");
+    }
+    spawn(cmd.arg(path).current_dir(path.parent().unwrap_or(Path::new("/"))))
 }
 
 /// Start a child in its own process group and reap it on a thread, so finished apps
@@ -3618,5 +3727,47 @@ fn shellexpand(s: &str) -> String {
     match s.strip_prefix('~') {
         Some(rest) => format!("{}{rest}", home().display()),
         None => s.to_string(),
+    }
+}
+
+#[cfg(test)]
+mod run_tests {
+    use super::*;
+
+    #[test]
+    fn command_line_tools_go_to_a_terminal() {
+        assert!(!looks_graphical(Path::new("/usr/bin/ls")));
+        // We're an egui app: winit loads libwayland-client by name.
+        assert!(looks_graphical(&std::env::current_exe().unwrap()));
+    }
+
+    #[test]
+    fn appimages_are_known_by_their_magic() {
+        let dir = std::env::temp_dir().join(format!("exploder-ai-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let ai = dir.join("thing");
+        std::fs::write(&ai, b"\x7fELF\x02\x01\x01\x00AI\x02rest").unwrap();
+        assert!(is_appimage(&ai));
+        assert!(!is_appimage(Path::new("/usr/bin/ls")));
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn a_program_that_dies_says_why() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!("exploder-die-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let p = dir.join("dies");
+        std::fs::write(&p, "#!/bin/sh\necho 'libfoo.so.1: cannot open shared object file' >&2\nexit 127\n").unwrap();
+        std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let notice = Arc::new(Mutex::new(None));
+        launch_watched(&p, false, false, notice.clone()).unwrap();
+        let start = std::time::Instant::now();
+        while notice.lock().unwrap().is_none() && start.elapsed() < Duration::from_secs(5) {
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        let got = notice.lock().unwrap().clone().unwrap_or_default();
+        assert_eq!(got, "dies quit with error 127: libfoo.so.1: cannot open shared object file");
+        let _ = std::fs::remove_dir_all(dir);
     }
 }

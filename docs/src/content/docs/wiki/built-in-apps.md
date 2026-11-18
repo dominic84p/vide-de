@@ -97,6 +97,16 @@ File manager styled like Windoze File Explorer.
   Partitions udisks hides (EFI, recovery) are hidden here too.
 - **Drag & drop**
 - **Context menus**
+- **Double-click runs programs**, like Explorer:
+  - Downloaded AppImages and binaries are made executable first. An AppImage that fails
+    because FUSE isn't installed is retried with `APPIMAGE_EXTRACT_AND_RUN=1`.
+  - Command-line programs (nothing in them mentions a windowing library) open in PowerSlop,
+    so their output stays readable.
+  - A program that quits with an error within a few seconds shows why in the status bar.
+    So does one that can't start: a drive mounted `noexec`, the wrong CPU type, a file you
+    don't own.
+  - `.exe` and `.msi` files run with Wine when it's installed.
+  - Scripts run in PowerSlop, and `.desktop` launchers through `gio launch`.
 
 ### Shortcuts
 
