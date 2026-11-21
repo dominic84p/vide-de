@@ -85,9 +85,10 @@ pub struct TaskItem {
     pub focused: bool,
     /// What the button is, for keeping it where it was dragged.
     pub key: crate::pins::TaskKey,
-    /// Drawn this far from its slot: following the pointer while dragged, or sliding into
-    /// its new place after the order changed.
-    pub dx: i32,
+    /// Following the pointer while dragged, or sliding into its new slot after the order
+    /// changed. It's then drawn as a picture of its own (`draw_task_button`) that the GPU moves,
+    /// so the taskbar isn't repainted every frame; where it is lives outside the key.
+    pub moving: bool,
     /// Held by the pointer: drawn above the buttons it passes.
     pub held: bool,
 }
@@ -209,49 +210,16 @@ pub fn draw_taskbar(
     let right_edge = w - CLOCK_W - notify_w - SHOW_DESKTOP_W;
     let tray_items = if key.secondary { 0 } else { 3 };
     let apps_x = right_edge - TRAY_W * tray_items - TRAY_W * key.tray_apps.len() as i32;
-    // Moving buttons are drawn last, and the held one last of all, so it passes over the others.
+    // A button that's sliding (or held) isn't painted here: it's its own picture, moved by the
+    // GPU every frame (`draw_task_button`), and its slot shows bare taskbar meanwhile.
     let fits = (((apps_x - TASK_BUTTONS_X) / TASK_W).max(0) as usize).min(key.items.len());
-    let mut order: Vec<usize> = (0..fits).collect();
-    order.sort_by_key(|&i| (key.items[i].held, key.items[i].dx != 0));
-    for &i in &order {
-        hits.push((rect(TASK_BUTTONS_X + i as i32 * TASK_W, 0, TASK_W, TASKBAR_H), TaskbarHit::Button(i)));
-    }
-    for i in order {
-        let item = &key.items[i];
-        let x = (TASK_BUTTONS_X + i as i32 * TASK_W + item.dx).clamp(TASK_BUTTONS_X, apps_x - TASK_W);
+    for (i, item) in key.items.iter().enumerate().take(fits) {
+        let x = TASK_BUTTONS_X + i as i32 * TASK_W;
         let hit = TaskbarHit::Button(i);
-        let bg = if item.focused { th().active } else if hovered(&hit) { th().hover } else { th().taskbar };
-        c.rect(x, 0, TASK_W, TASKBAR_H, bg);
-        match app_icon(icons, &item.icon, 24) {
-            Some(icon) => c.icon(&icon, x + (TASK_W - 24) / 2, (TASKBAR_H - 24) / 2),
-            None => {
-                // No icon: first letter of the title in a tile.
-                c.round_rect(x + 12, 8, 24, 24, 4, ACCENT);
-                if let (Some(f), Some(ch)) = (font, item.title.chars().next()) {
-                    let s = ch.to_uppercase().to_string();
-                    let tw = measure(f, 14.0, &s);
-                    c.text(f, 14.0, x + 24 - tw / 2, 8, 24, ON_ACCENT, &s);
-                }
-            }
+        if !item.moving {
+            paint_task_button(&mut c, font, icons, item, x, hovered(&hit));
         }
-        // Open-window underline; full width when focused, none for a pinned app that isn't running.
-        if item.focused {
-            c.rect(x, TASKBAR_H - 2, TASK_W, 2, th().accent_light);
-        } else if !item.windows.is_empty() {
-            c.rect(x + 6, TASKBAR_H - 2, TASK_W - 12, 2, th().accent_light);
-        }
-        // Several windows: a second, offset line, like Windoze' stacked-button edge.
-        if item.windows.len() > 1 {
-            c.rect(x + TASK_W - 3, 4, 1, TASKBAR_H - 8, th().divider);
-        }
-        // A group of several: how many, as KDE shows it, since one button now stands for them all.
-        if let (true, Some(f)) = (item.windows.len() > 1, font) {
-            let n = if item.windows.len() > 99 { "99+".to_string() } else { item.windows.len().to_string() };
-            let bw = (measure(f, 10.0, &n) + 6).max(15);
-            let bx = x + TASK_W - bw - 4;
-            c.round_rect(bx, 5, bw, 15, 7, ACCENT);
-            c.text(f, 10.0, bx + (bw - measure(f, 10.0, &n)) / 2, 5, 15, ON_ACCENT, &n);
-        }
+        hits.push((rect(x, 0, TASK_W, TASKBAR_H), hit));
     }
 
     // App tray icons (Discord, Steam, ...), left of our own.
@@ -352,6 +320,49 @@ pub fn draw_taskbar(
     hits.push((rect(dx, 0, SHOW_DESKTOP_W, TASKBAR_H), TaskbarHit::ShowDesktop));
 
     Taskbar { key, buffer: c.into_buffer(), hits }
+}
+
+/// One taskbar button on its own, for sliding it around on the GPU.
+pub fn draw_task_button(font: Option<&Font>, icons: &mut Icons, item: &TaskItem) -> MemoryRenderBuffer {
+    let mut c = Canvas::new(TASK_W, TASKBAR_H);
+    c.fill(th().taskbar);
+    paint_task_button(&mut c, font, icons, item, 0, item.held);
+    c.into_buffer()
+}
+
+fn paint_task_button(c: &mut Canvas, font: Option<&Font>, icons: &mut Icons, item: &TaskItem, x: i32, hovered: bool) {
+    let bg = if item.focused { th().active } else if hovered { th().hover } else { th().taskbar };
+    c.rect(x, 0, TASK_W, TASKBAR_H, bg);
+    match app_icon(icons, &item.icon, 24) {
+        Some(icon) => c.icon(&icon, x + (TASK_W - 24) / 2, (TASKBAR_H - 24) / 2),
+        None => {
+            // No icon: first letter of the title in a tile.
+            c.round_rect(x + 12, 8, 24, 24, 4, ACCENT);
+            if let (Some(f), Some(ch)) = (font, item.title.chars().next()) {
+                let s = ch.to_uppercase().to_string();
+                let tw = measure(f, 14.0, &s);
+                c.text(f, 14.0, x + 24 - tw / 2, 8, 24, ON_ACCENT, &s);
+            }
+        }
+    }
+    // Open-window underline; full width when focused, none for a pinned app that isn't running.
+    if item.focused {
+        c.rect(x, TASKBAR_H - 2, TASK_W, 2, th().accent_light);
+    } else if !item.windows.is_empty() {
+        c.rect(x + 6, TASKBAR_H - 2, TASK_W - 12, 2, th().accent_light);
+    }
+    // Several windows: a second, offset line, like Windoze' stacked-button edge.
+    if item.windows.len() > 1 {
+        c.rect(x + TASK_W - 3, 4, 1, TASKBAR_H - 8, th().divider);
+    }
+    // A group of several: how many, as KDE shows it, since one button now stands for them all.
+    if let (true, Some(f)) = (item.windows.len() > 1, font) {
+        let n = if item.windows.len() > 99 { "99+".to_string() } else { item.windows.len().to_string() };
+        let bw = (measure(f, 10.0, &n) + 6).max(15);
+        let bx = x + TASK_W - bw - 4;
+        c.round_rect(bx, 5, bw, 15, 7, ACCENT);
+        c.text(f, 10.0, bx + (bw - measure(f, 10.0, &n)) / 2, 5, 15, ON_ACCENT, &n);
+    }
 }
 
 /// Look an app's icon up by its app_id, trying the usual name variations.

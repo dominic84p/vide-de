@@ -188,6 +188,8 @@ pub struct State {
     pub task_order: Vec<crate::pins::TaskKey>,
     /// Taskbar buttons sliding to a new slot: how far away they started, and when.
     pub task_slide: Vec<(crate::pins::TaskKey, f32, Instant)>,
+    /// Pictures of the taskbar buttons on the move, by what they show.
+    pub task_button_pics: Vec<(crate::ui::TaskItem, MemoryRenderBuffer)>,
     /// The taskbar was used over a fullscreen app, so it stays up after the menu or flyout
     /// that brought it closes, until the user goes back to the app (clicks or types in it).
     pub taskbar_peek: bool,
@@ -380,6 +382,7 @@ impl State {
             task_drag: None,
             task_order: Vec::new(),
             task_slide: Vec::new(),
+            task_button_pics: Vec::new(),
             taskbar_peek: false,
             desktop_shown: None,
             snap: Default::default(),

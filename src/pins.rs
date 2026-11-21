@@ -224,7 +224,7 @@ impl State {
                 pinned: Some(id.clone()),
                 focused: mine.iter().any(|w| is_focused(w)),
                 key: TaskKey::App(id.clone()),
-                dx: 0,
+                moving: false,
                 held: false,
             });
         }
@@ -266,7 +266,7 @@ impl State {
                 pinned: None,
                 focused: is_focused(w),
                 key,
-                dx: 0,
+                moving: false,
                 held: false,
             });
         }
@@ -398,23 +398,28 @@ impl State {
         }
     }
 
-    /// The taskbar's buttons with where to draw them: the dragged one under the pointer, ones it
-    /// pushed aside still sliding into place.
+    /// The taskbar's buttons, marked if they're moving: the dragged one, and ones it pushed aside
+    /// that are still sliding into place. Where they are each frame is `task_button_dx`.
     pub fn taskbar_items_animated(&mut self, focused: Option<&WlSurface>) -> Vec<TaskItem> {
+        self.task_slide.retain(|(_, _, t0)| t0.elapsed() < TASK_SLIDE);
         let mut items = self.taskbar_items(focused);
         let drag = self.task_drag.clone().filter(|d| d.moved);
-        for (i, it) in items.iter_mut().enumerate() {
+        for it in items.iter_mut() {
             it.held = drag.as_ref().is_some_and(|d| d.key == it.key);
-            it.dx = match &drag {
-                Some(d) if it.held => self.drag_dx(d, i),
-                _ => self.task_slide_dx(&it.key).round() as i32,
-            };
+            it.moving = it.held || self.task_slide.iter().any(|(k, ..)| *k == it.key);
         }
-        self.task_slide.retain(|(_, _, t0)| t0.elapsed() < TASK_SLIDE);
         if !self.task_slide.is_empty() {
             self.needs_redraw = true;
         }
         items
+    }
+
+    /// How far button `slot` (a moving one) is drawn from its slot this frame.
+    pub fn task_button_dx(&self, item: &TaskItem, slot: usize) -> i32 {
+        match self.task_drag.as_ref().filter(|d| d.moved && d.key == item.key) {
+            Some(d) => self.drag_dx(d, slot),
+            None => self.task_slide_dx(&item.key).round() as i32,
+        }
     }
 
     /// Keeps the dragged button under the pointer, wherever its slot is now.

@@ -458,6 +458,24 @@ pub fn elements_with(renderer: &mut GlesRenderer, state: &mut State, view: Recta
                 let tray_icons = tray_icons(state);
                 state.taskbar = Some(ui::draw_taskbar(state.font.as_ref(), &mut state.icons, state.logo.as_ref(), &tray_icons, key));
             }
+            // Buttons on the move: each its own picture, placed where it is this frame, so the GPU
+            // slides them and the taskbar picture stays as it is. The held one goes in front.
+            let bar = state.taskbar.as_ref().unwrap();
+            let slots = bar.hits.iter().filter(|(_, h)| matches!(h, ui::TaskbarHit::Button(_))).count();
+            let mut moving: Vec<(usize, ui::TaskItem)> = bar.key.items.iter().cloned().enumerate().take(slots).filter(|(_, it)| it.moving).collect();
+            moving.sort_by_key(|(_, it)| !it.held);
+            state.task_button_pics.retain(|(it, _)| moving.iter().any(|(_, m)| m == it));
+            for (slot, item) in moving {
+                let dx = state.task_button_dx(&item, slot);
+                let last = ui::TASK_BUTTONS_X + (slots.max(1) as i32 - 1) * ui::TASK_W;
+                let x = (ui::TASK_BUTTONS_X + slot as i32 * ui::TASK_W + dx).clamp(ui::TASK_BUTTONS_X, last);
+                if !state.task_button_pics.iter().any(|(it, _)| *it == item) {
+                    let pic = ui::draw_task_button(state.font.as_ref(), &mut state.icons, &item);
+                    state.task_button_pics.push((item.clone(), pic));
+                }
+                let pic = state.task_button_pics.iter().find(|(it, _)| *it == item).map(|(_, p)| p.clone()).unwrap();
+                out.extend(image(renderer, &v, &pic, (x, oh - TASKBAR_H).into(), Kind::Unspecified));
+            }
             let bar = state.taskbar.as_ref().unwrap();
             out.extend(image(renderer, &v, &bar.buffer, (0, oh - TASKBAR_H).into(), Kind::Unspecified));
         }
