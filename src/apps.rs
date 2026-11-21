@@ -201,6 +201,7 @@ const WALLPAPERS: &[(&str, &[u8])] = &[
     ("ember.png", include_bytes!("../assets/wallpapers/ember.png")),
     ("vibe.png", include_bytes!("../assets/wallpapers/vibe.png")),
     ("grumpy.png", include_bytes!("../assets/wallpapers/grumpy.png")),
+    ("keys.png", include_bytes!("../assets/wallpapers/keys.png")),
 ];
 
 /// Our notification sounds (made by scripts/make-sounds.py).
