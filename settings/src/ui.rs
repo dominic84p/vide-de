@@ -1178,6 +1178,8 @@ impl Settings {
                         .inner_margin(2.0)
                         .show(ui, |ui| ui.add(img.sense(egui::Sense::click())))
                         .inner;
+                    // Its name, from the file: "Vide desktop, 2026".
+                    let r = r.on_hover_text(path.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default());
                     if r.clicked() {
                         self.config.wallpaper = path;
                         changed = true;
