@@ -116,6 +116,12 @@ their desktop entry, else by app id, else (Wayland only) by the program behind t
 group steps through its windows; hovering it shows them all (see below). **Middle-click** a
 button to open another window of that app.
 
+## New apps
+
+Start notices apps you install or remove (their `.desktop` files, in `$XDG_DATA_HOME` and
+`$XDG_DATA_DIRS`) within about three seconds, no sign-out needed. It waits while Start is
+open, so the list never changes under the pointer.
+
 ## Over fullscreen apps
 
 A fullscreen app hides the taskbar. Super (or anything else that brings the taskbar up) shows

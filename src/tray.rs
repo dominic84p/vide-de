@@ -109,6 +109,9 @@ pub enum TrayUpdate {
     Connected { ssid: String, ok: bool },
 }
 
+/// The flyouts' pin button, square.
+const PIN: i32 = 26;
+
 pub struct Tray {
     pub volume: f32,
     pub muted: bool,
@@ -129,6 +132,8 @@ pub struct Tray {
     pub scroll: usize,
     /// Calendar: months away from this one.
     pub cal_month: i32,
+    /// Pinned open (its pin button, like a KDE popup's): clicks elsewhere leave it up.
+    pub pinned: bool,
     pub(crate) picture: Option<(String, MemoryRenderBuffer, Vec<(Rectangle<i32, Logical>, FlyoutAction)>)>,
     updates: Option<Sender<TrayUpdate>>,
 }
@@ -151,6 +156,7 @@ impl Tray {
             hover: None,
             scroll: 0,
             cal_month: 0,
+            pinned: false,
             picture: None,
             updates: None,
         }
@@ -341,6 +347,9 @@ impl State {
     }
 
     pub fn toggle_flyout(&mut self, f: Flyout) {
+        if self.tray.flyout != Some(f) {
+            self.tray.pinned = false;
+        }
         self.tray.flyout = if self.tray.flyout == Some(f) { None } else { Some(f) };
         if self.tray.flyout.is_some() {
             self.release_pointer();
@@ -372,6 +381,7 @@ impl State {
 
     pub fn close_flyout(&mut self) {
         if self.tray.flyout.take().is_some() {
+            self.tray.pinned = false;
             self.tray.dragging = false;
             self.tray.password = None;
             self.tray.hover = None;
@@ -595,11 +605,18 @@ impl State {
         }
     }
 
+    /// The pin button in a flyout's top-right corner, global.
+    pub fn flyout_pin_rect(&self) -> Rectangle<i32, Logical> {
+        let r = self.flyout_rect();
+        Rectangle::new((r.loc.x + r.size.w - PIN - 4, r.loc.y + 4).into(), (PIN, PIN).into())
+    }
+
     pub fn flyout_picture(&mut self) -> Option<&MemoryRenderBuffer> {
         let f = self.tray.flyout?;
         let h = self.flyout_rect().size.h;
+        let pin_hover = self.flyout_pin_rect().to_f64().contains(self.pointer_loc);
         let t = &self.tray;
-        let key = match f {
+        let key = format!("{}:{pin_hover}:{}", t.pinned, match f {
             Flyout::Volume => format!("volume:{}:{}:{h}:{:?}", (t.volume * 100.0).round(), t.muted, self.media.now),
             Flyout::Brightness => format!("brightness:{}", (t.brightness * 100.0).round()),
             Flyout::Network => format!(
@@ -608,7 +625,7 @@ impl State {
             ),
             // The minute is in the key so the big clock keeps time.
             Flyout::Calendar => format!("calendar:{}:{}:{:?}:{}", t.cal_month, self.clock.0, t.hover, crate::theme::light()),
-        };
+        });
         if self.tray.picture.as_ref().is_none_or(|(k, _, _)| *k != key) {
             let mut c = Canvas::new(FLYOUT_W, h);
             c.fill(th().panel);
@@ -628,6 +645,16 @@ impl State {
                     }
                 }
             }
+            // The pin: lit while pinned, outlined while hovered.
+            let x = FLYOUT_W - PIN - 4;
+            if self.tray.pinned {
+                c.rect(x, 4, PIN, PIN, crate::theme::ACCENT);
+            } else if pin_hover {
+                c.rect(x, 4, PIN, PIN, th().row_hover);
+            }
+            let ink = if self.tray.pinned { crate::theme::ON_ACCENT } else { th().text_dim };
+            let body = r##"<path d="M12 2.5l5.5 5.5-2.5 1-3 3 .5 3.5-2 1-7.5-7.5 1-2 3.5.5 3-3zM7 13l-4.5 4.5" fill="none" stroke="#fff" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>"##;
+            glyph_ink(&mut c, body.into(), (x + PIN / 2) as f32, (4 + PIN / 2) as f32, 14, ink);
             self.tray.picture = Some((key, c.into_buffer(), hits));
         }
         self.tray.picture.as_ref().map(|(_, b, _)| b)

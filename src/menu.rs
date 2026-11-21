@@ -48,6 +48,9 @@ pub enum Action {
     PinTaskbar(String),
     /// Start's account button: Sign out.
     SignOut,
+    /// Win+X's shut down and restart.
+    Power(crate::ui::PowerAction),
+    ShowDesktop,
     /// Keep a window above all others, or stop.
     OnTop(WlSurface),
     /// Clipboard history (Win+V): put entry N back on the clipboard and paste it.
@@ -334,6 +337,38 @@ impl State {
         }
     }
 
+    /// Win+X, or a right click on Start: Windoze 10's quick link menu, flush over the Start
+    /// button.
+    pub fn open_quick_link_menu(&mut self) {
+        if self.start.open {
+            self.toggle_start();
+        }
+        let settings = |page: &str| {
+            let exe = crate::input::own_app("vide-settings").unwrap_or_else(|| "vide-settings".into());
+            Action::Spawn(format!("{exe} --page {page}"))
+        };
+        let own = |name: &str, fallback: &str| Action::Spawn(crate::input::own_app(name).unwrap_or_else(|| fallback.into()));
+        let items = vec![
+            ("Apps and Features".into(), settings("apps")),
+            ("Power Options".into(), settings("power")),
+            ("System".into(), settings("about")),
+            ("Network Connections".into(), settings("network-status")),
+            (String::new(), Action::Separator),
+            ("PowerSlop".into(), Action::Spawn(crate::input::terminal())),
+            ("Task Mangler".into(), own("task-mangler", "plasma-systemmonitor")),
+            ("Settings".into(), own("vide-settings", "systemsettings")),
+            ("File Exploder".into(), own("file-exploder", "dolphin")),
+            (String::new(), Action::Separator),
+            ("Sign out".into(), Action::Power(crate::ui::PowerAction::SignOut)),
+            ("Restart".into(), Action::Power(crate::ui::PowerAction::Restart)),
+            ("Shut down".into(), Action::Power(crate::ui::PowerAction::ShutDown)),
+            (String::new(), Action::Separator),
+            ("Desktop".into(), Action::ShowDesktop),
+        ];
+        let h = items.len() as i32 * ROW + PAD * 2;
+        self.open_menu((0, self.output_size.h - TASKBAR_H - h).into(), items);
+    }
+
     pub fn open_desktop_menu(&mut self, at: Point<i32, Logical>) {
         let items = vec![
             ("Open terminal".into(), Action::Spawn(crate::input::terminal())),
@@ -393,6 +428,8 @@ impl State {
             Action::Spawn(cmd) => self.spawn(&cmd),
             Action::Screenshot => self.screenshot_requested = Some(None),
             Action::SignOut => self.power(crate::ui::PowerAction::SignOut),
+            Action::Power(a) => self.power(a),
+            Action::ShowDesktop => self.show_desktop(),
             Action::About => {
                 // The About app ships next to our own binary.
                 let about = std::env::current_exe()

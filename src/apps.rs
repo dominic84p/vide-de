@@ -33,6 +33,30 @@ pub fn scan() -> Vec<App> {
     apps
 }
 
+/// Something that changes whenever a .desktop file is added, removed or replaced in any of
+/// the application folders: their modification times. Package managers and Flatpak write
+/// entries by renaming them into place, which bumps the folder's time even for an update.
+pub fn dirs_stamp() -> u64 {
+    use std::hash::{Hash, Hasher};
+    fn walk(dir: &std::path::Path, depth: u32, h: &mut impl Hasher) {
+        let Ok(meta) = std::fs::metadata(dir) else { return };
+        dir.hash(h);
+        meta.modified().ok().hash(h);
+        if depth < 2 {
+            for e in std::fs::read_dir(dir).into_iter().flatten().flatten() {
+                if e.file_type().is_ok_and(|t| t.is_dir()) {
+                    walk(&e.path(), depth + 1, h);
+                }
+            }
+        }
+    }
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    for d in crate::icons::data_dirs() {
+        walk(&d.join("applications"), 0, &mut h);
+    }
+    h.finish()
+}
+
 fn scan_dir(dir: &PathBuf, depth: u32, root: &PathBuf, seen: &mut HashSet<String>, apps: &mut Vec<App>) {
     let Ok(entries) = std::fs::read_dir(dir) else { return };
     for e in entries.flatten() {
@@ -199,9 +223,8 @@ const SOUNDS: &[(&str, &[u8])] = &[
 /// Install the built-ins that exist next to our binary. Marked OnlyShowIn=VIDE-DE so
 /// other desktops don't list them. Files are only rewritten when they changed.
 pub fn install_builtin() {
-    let Ok(home) = std::env::var("HOME") else { return };
+    let Some(share) = crate::icons::data_home() else { return };
     let Some(bin_dir) = std::env::current_exe().ok().and_then(|p| p.parent().map(|d| d.to_path_buf())) else { return };
-    let share = PathBuf::from(&home).join(".local/share");
     let write = |path: &PathBuf, bytes: &[u8]| {
         if std::fs::read(path).ok().as_deref() != Some(bytes) {
             if let Some(dir) = path.parent() {

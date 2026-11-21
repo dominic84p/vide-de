@@ -18,6 +18,8 @@ description: 'Complete keyboard shortcut list'
 | `Super+Shift+Up` | Snap up |
 | `Super+Shift+Down` | Snap down |
 | `Super+Shift+M` | Toggle maximize (alternate) |
+| `Super+D` | Show desktop: minimize every window here; press again to bring them back |
+| Hover the maximize button | Snap layouts: a panel of layouts (halves, thirds, quarters...) drops below it; click a zone to snap the window there |
 | `Super+Shift+P` | Pin a window on top: opens a picker of this desktop's windows; click one (or arrows + `Enter`) to keep it above everything, fullscreen apps included. Pick a pinned one to unpin. `Esc` closes. Nested: `Alt+Shift+P` |
 
 ## Workspace (Virtual Desktops)
@@ -28,6 +30,7 @@ description: 'Complete keyboard shortcut list'
 | `Super+Shift+1` .. `Super+Shift+0` | Move window to workspace 1-10 |
 | `Super+Ctrl+Left` | Previous workspace |
 | `Super+Ctrl+Right` | Next workspace |
+| `Super+Ctrl+F4` | Close this desktop: its windows move to the one before it |
 | `Super+Tab` | Open Task View |
 
 ## Start Menu & Search
@@ -46,6 +49,7 @@ description: 'Complete keyboard shortcut list'
 
 | Shortcut | Action |
 |----------|--------|
+| `Super+X` | Quick link menu over the Start button (also a right click on Start): Apps and Features, Power Options, System, Network Connections, PowerSlop, Task Mangler, Settings, File Exploder, sign out / restart / shut down, Desktop |
 | `Super+Enter` | Launch terminal (konsole) |
 | `Super+E` | Launch File Exploder |
 | `Super+V` | Clipboard history: the last 25 things you copied (text and images, screenshots included), newest first. Pick one with the mouse or arrows + `Enter` and it's pasted into the focused app. **Clear all** empties it. Password-manager copies are never kept. Nested: `Alt+V` |
@@ -89,17 +93,25 @@ a vertical bar, fading out about 1.6 s after the last press.
 | Move window | `Super+Left Drag` (titlebar or anywhere on SSD) |
 | Resize window | `Super+Right Drag` (edges) |
 | Show window menu | `Right Click` (titlebar or taskbar button) |
-| Close window | `Middle Click` (taskbar button) |
-| New window instance | `Middle Click` (pinned app) |
+| New window of that app | `Middle Click` (taskbar button) |
+| Close a window | `Middle Click` (its taskbar preview) |
+| Volume / brightness | `Scroll` over the tray icon or its flyout |
+| Keep a flyout open | Its pin button (top right); clicks elsewhere leave it up until you unpin or press `Esc` |
 
 ## Customization
 
-Keybindings are **not yet user-configurable** via settings file. To change:
+Add your own shortcuts in `~/.config/vide-de/shortcuts.conf`, one per line:
 
-1. Edit `src/input.rs` bind() function
-2. Rebuild: `cargo build --release --workspace`
+```text
+# keys = command
+super+shift+t = konsole
+ctrl+alt+f = firefox --new-window
+```
 
-Future: Keybinding configuration via `settings.conf` planned.
+Modifiers are `super` (or `win`), `ctrl`, `alt` and `shift`; the key is any XKB key name
+(`t`, `F5`, `Return`, `Print`...). Yours win over the built-in binds, so you can repoint those
+too. Edits apply within a second, no sign-out needed. Nested, the host keeps Super, so bind
+with `alt` to try them there.
 
 ## Debug Shortcuts (Dev Only)
 

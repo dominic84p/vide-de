@@ -379,24 +379,6 @@ pub fn elements_with(renderer: &mut GlesRenderer, state: &mut State, view: Recta
         panel_fx(renderer, &v, &mut out, &mut state.anims.action_center, ac_p, now, |e, _| Fx::slide(e.sqrt(), w * (1.0 - e), 0.0));
     });
 
-    // Taskbar previews: live thumbnails over the strip's picture, fading in.
-    crate::supervisor::guard("taskbar previews", || {
-        if let Some((buf, at, thumbs)) = state.preview_picture() {
-            let lift = Point::from((0, (14.0 * (1.0 - preview_e)).round() as i32));
-            for (s, area) in thumbs {
-                out.extend(live_thumbnail(renderer, &v, state, &s, Rectangle::new(area.loc + lift, area.size), preview_e));
-            }
-            out.extend(image_fx(renderer, &v, &buf, at, &Fx::slide(preview_e, 0.0, lift.y as f32)));
-        }
-    });
-
-    // Tray flyout (volume/brightness slider), above the taskbar.
-    crate::supervisor::guard("tray flyout", || {
-        let flyout_at = state.flyout_rect().loc;
-        let now = state.flyout_picture().cloned().map(|b| (b, flyout_at));
-        panel_fx(renderer, &v, &mut out, &mut state.anims.flyout, flyout_p, now, |e, _| Fx::slide(e, 0.0, 36.0 * (1.0 - e)));
-    });
-
     // Snipping overlay: everything dimmed except the selection.
     let layout = state.layout_rect();
     if let Some(snip) = state.snip.as_mut() {
@@ -418,6 +400,13 @@ pub fn elements_with(renderer: &mut GlesRenderer, state: &mut State, view: Recta
         });
     });
 
+    // Snap layouts, dropped from a maximize button.
+    crate::supervisor::guard("snap layouts", || {
+        if let Some((buf, at)) = state.snap_layouts_picture() {
+            out.extend(image(renderer, &v, &buf, at, Kind::Unspecified));
+        }
+    });
+
     // X11 menus and tooltips, above everything but the cursor.
     for x in state.x11_overrides.iter().rev() {
         if let Some(s) = x.wl_surface() {
@@ -431,6 +420,40 @@ pub fn elements_with(renderer: &mut GlesRenderer, state: &mut State, view: Recta
         out.extend(surface_tree(renderer, &v, icon, loc, Kind::Unspecified));
     }
 
+    // Taskbar, unless a fullscreen window is in front.
+    crate::supervisor::guard("taskbar", || {
+        if state.taskbar_shown() {
+            let key = TaskbarKey {
+                width: ow,
+                items: state.taskbar_items(focused.as_ref()),
+                time: state.clock.0.clone(),
+                date: state.clock.1.clone(),
+                hover: match &state.hover {
+                    Hover::Taskbar(h) => Some(h.clone()),
+                    _ => None,
+                },
+                start_open: state.start.open,
+                volume: ((state.tray.volume * 100.0).round() as u32, state.tray.muted),
+                net: state.tray.icon(),
+                flyout: state.tray.flyout,
+                current_workspace: state.wm.current_workspace,
+                taskview_open: state.desktops.open,
+                tray_apps: state.sni_items.iter().map(|i| (i.id.clone(), tray_fingerprint(i))).collect(),
+                search_text: (state.start.open && state.start.searching()).then(|| state.start.query.clone()),
+                notifications: (!state.action_center.notifications.is_empty(), state.action_center.unseen),
+                action_center_open: state.action_center.open,
+            };
+            if state.taskbar.as_ref().is_none_or(|t| t.key != key) {
+                let tray_icons = tray_icons(state);
+                state.taskbar = Some(ui::draw_taskbar(state.font.as_ref(), &mut state.icons, state.logo.as_ref(), &tray_icons, key));
+            }
+            let bar = state.taskbar.as_ref().unwrap();
+            out.extend(image(renderer, &v, &bar.buffer, (0, oh - TASKBAR_H).into(), Kind::Unspecified));
+        }
+    });
+
+    // Start, flyouts and previews go behind the taskbar, so they slide out from under its top
+    // edge rather than up from the bottom of the screen across it.
     // Start menu.
     crate::supervisor::guard("start menu", || {
         if state.start.open {
@@ -470,36 +493,22 @@ pub fn elements_with(renderer: &mut GlesRenderer, state: &mut State, view: Recta
         }
     });
 
-    // Taskbar, unless a fullscreen window is in front.
-    crate::supervisor::guard("taskbar", || {
-        if state.taskbar_shown() {
-            let key = TaskbarKey {
-                width: ow,
-                items: state.taskbar_items(focused.as_ref()),
-                time: state.clock.0.clone(),
-                date: state.clock.1.clone(),
-                hover: match &state.hover {
-                    Hover::Taskbar(h) => Some(h.clone()),
-                    _ => None,
-                },
-                start_open: state.start.open,
-                volume: ((state.tray.volume * 100.0).round() as u32, state.tray.muted),
-                net: state.tray.icon(),
-                flyout: state.tray.flyout,
-                current_workspace: state.wm.current_workspace,
-                taskview_open: state.desktops.open,
-                tray_apps: state.sni_items.iter().map(|i| (i.id.clone(), tray_fingerprint(i))).collect(),
-                search_text: (state.start.open && state.start.searching()).then(|| state.start.query.clone()),
-                notifications: (!state.action_center.notifications.is_empty(), state.action_center.unseen),
-                action_center_open: state.action_center.open,
-            };
-            if state.taskbar.as_ref().is_none_or(|t| t.key != key) {
-                let tray_icons = tray_icons(state);
-                state.taskbar = Some(ui::draw_taskbar(state.font.as_ref(), &mut state.icons, state.logo.as_ref(), &tray_icons, key));
+    // Taskbar previews: live thumbnails over the strip's picture, fading in.
+    crate::supervisor::guard("taskbar previews", || {
+        if let Some((buf, at, thumbs)) = state.preview_picture() {
+            let lift = Point::from((0, (14.0 * (1.0 - preview_e)).round() as i32));
+            for (s, area) in thumbs {
+                out.extend(live_thumbnail(renderer, &v, state, &s, Rectangle::new(area.loc + lift, area.size), preview_e));
             }
-            let bar = state.taskbar.as_ref().unwrap();
-            out.extend(image(renderer, &v, &bar.buffer, (0, oh - TASKBAR_H).into(), Kind::Unspecified));
+            out.extend(image_fx(renderer, &v, &buf, at, &Fx::slide(preview_e, 0.0, lift.y as f32)));
         }
+    });
+
+    // Tray flyout (volume/brightness slider), above the taskbar.
+    crate::supervisor::guard("tray flyout", || {
+        let flyout_at = state.flyout_rect().loc;
+        let now = state.flyout_picture().cloned().map(|b| (b, flyout_at));
+        panel_fx(renderer, &v, &mut out, &mut state.anims.flyout, flyout_p, now, |e, _| Fx::slide(e, 0.0, 36.0 * (1.0 - e)));
     });
 
     // Top-layer clients (panels, docks) above windows.

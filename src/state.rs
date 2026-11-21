@@ -176,6 +176,10 @@ pub struct State {
     /// Our logo, sized for the start button.
     pub logo: Option<crate::icons::Icon>,
     pub apps: Vec<App>,
+    /// `apps::dirs_stamp()` when `apps` was read; a change means apps were (un)installed.
+    pub apps_stamp: u64,
+    /// Clock ticks, so the app folders are only looked at every third one.
+    pub app_poll: u32,
     pub taskbar: Option<Taskbar>,
     pub start: Start,
     pub pins: crate::pins::Pins,
@@ -185,6 +189,12 @@ pub struct State {
     /// The taskbar was used over a fullscreen app, so it stays up after the menu or flyout
     /// that brought it closes, until the user goes back to the app (clicks or types in it).
     pub taskbar_peek: bool,
+    /// What Show desktop minimized, on which desktop, to bring back on the next press.
+    pub desktop_shown: Option<(usize, Vec<WlSurface>)>,
+    /// Snap layouts under a maximize button (snaplayout.rs).
+    pub snap: crate::snaplayout::SnapState,
+    /// The user's own key binds (shortcuts.conf).
+    pub shortcuts: crate::shortcuts::Shortcuts,
     pub start_drag: Option<crate::pins::StartDrag>,
     pub file_index: crate::search::FileIndex,
     pub menu: Option<crate::menu::Menu>,
@@ -347,6 +357,8 @@ impl State {
             font: canvas::load_font(),
             icons: Icons::new(),
             logo: crate::icons::logo(24),
+            apps_stamp: apps::dirs_stamp(),
+            app_poll: 0,
             apps: apps::scan(),
             taskbar: None,
             start: Start::default(),
@@ -354,6 +366,13 @@ impl State {
             task_drag: None,
             task_order: Vec::new(),
             taskbar_peek: false,
+            desktop_shown: None,
+            snap: Default::default(),
+            shortcuts: {
+                let mut s = crate::shortcuts::Shortcuts::default();
+                s.reload_if_changed();
+                s
+            },
             start_drag: None,
             file_index: Default::default(),
             menu: None,
@@ -576,12 +595,27 @@ impl State {
         }
     }
 
+    /// Show desktop (Win+D, the taskbar's far corner): minimize everything here; again, and
+    /// what it minimized comes back, as on Windoze.
     pub fn show_desktop(&mut self) {
         let ws = self.wm.current_workspace;
-        for w in self.wm.windows.iter_mut().filter(|w| w.workspace == ws && !w.minimized) {
+        if let Some((at, hidden)) = self.desktop_shown.take() {
+            let back: Vec<_> = hidden.into_iter().filter(|s| self.wm.find(s).is_some_and(|w| w.minimized)).collect();
+            if at == ws && !back.is_empty() {
+                // Oldest first, so the one that was on top ends up on top again.
+                for s in back {
+                    self.focus(Some(s), SERIAL_COUNTER.next_serial());
+                }
+                return;
+            }
+        }
+        let mut hidden = Vec::new();
+        for w in self.wm.windows.iter_mut().filter(|w| w.workspace == ws && !w.minimized && w.mapped) {
             w.minimized = true;
             w.vanish = Some(Instant::now());
+            hidden.push(w.surface().clone());
         }
+        self.desktop_shown = Some((ws, hidden));
         self.focus(None, SERIAL_COUNTER.next_serial());
     }
 
@@ -735,6 +769,25 @@ impl State {
         };
         self.start.selected = self.start.results.iter().position(|e| e.selectable()).unwrap_or(0);
         self.start.scroll = 0;
+    }
+
+    /// Pick up apps installed or removed since we last looked (polled every few seconds), so
+    /// they show in Start without signing out. Start and its drags hold indices into
+    /// `apps`, so this waits until Start is closed.
+    pub fn rescan_apps_if_changed(&mut self) {
+        if self.start.open || self.start_drag.is_some() || self.menu.is_some() {
+            return;
+        }
+        let stamp = apps::dirs_stamp();
+        if stamp == self.apps_stamp {
+            return;
+        }
+        self.apps_stamp = stamp;
+        self.apps = apps::scan();
+        self.start.menu = None;
+        self.taskbar = None;
+        self.refresh_start();
+        self.needs_redraw = true;
     }
 
     /// Pick up edits from the Settings app (polled once a second).

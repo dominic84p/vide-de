@@ -276,11 +276,19 @@ fn score(path: &Path) -> i32 {
 
 /// Where icons and apps live: the user's dir, then `XDG_DATA_DIRS` (which is how
 /// Flatpak and Snap apps get found), then the usual defaults.
+/// $XDG_DATA_HOME, else ~/.local/share: where per-user apps, icons and our built-ins live.
+pub fn data_home() -> Option<PathBuf> {
+    match std::env::var("XDG_DATA_HOME") {
+        Ok(d) if !d.is_empty() => Some(PathBuf::from(d)),
+        _ => std::env::var("HOME").ok().map(|h| PathBuf::from(h).join(".local/share")),
+    }
+}
+
 pub fn data_dirs() -> Vec<PathBuf> {
     let mut dirs = Vec::new();
-    if let Ok(home) = std::env::var("HOME") {
-        dirs.push(PathBuf::from(format!("{home}/.local/share")));
-        dirs.push(PathBuf::from(format!("{home}/.local/share/flatpak/exports/share")));
+    if let Some(home) = data_home() {
+        dirs.push(home.join("flatpak/exports/share"));
+        dirs.insert(0, home);
     }
     let xdg = std::env::var("XDG_DATA_DIRS").unwrap_or_default();
     dirs.extend(xdg.split(':').filter(|s| !s.is_empty()).map(PathBuf::from));

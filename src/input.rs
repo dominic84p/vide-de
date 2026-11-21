@@ -63,6 +63,14 @@ enum Action {
     PinPicker,
     /// Win+V.
     ClipboardHistory,
+    /// A command from shortcuts.conf.
+    Custom(String),
+    /// Win+X: the power-user menu over the Start button.
+    QuickLink,
+    /// Win+D: minimize everything, or bring it back.
+    ShowDesktop,
+    /// Win+Ctrl+F4: empty this desktop onto the one before it.
+    CloseDesktop,
     /// Win+. (or Win+;): the emoji panel.
     Emoji,
     /// Arrow keys and Enter in an open menu.
@@ -171,6 +179,9 @@ fn bind(super_mod: bool, mods: &ModifiersState, sym: Keysym) -> Option<Action> {
         Keysym::e if mods.shift => Some(Action::Quit),
         Keysym::p | Keysym::P if mods.shift => Some(Action::PinPicker),
         Keysym::v if !mods.shift => Some(Action::ClipboardHistory),
+        Keysym::x => Some(Action::QuickLink),
+        Keysym::d if !mods.ctrl => Some(Action::ShowDesktop),
+        Keysym::F4 if mods.ctrl => Some(Action::CloseDesktop),
         Keysym::period | Keysym::semicolon => Some(Action::Emoji),
         // Workspace switching: Mod+1-9,0 (0 = workspace 10)
         // Mod+Shift+1-9,0 to move focused window to workspace (must come first)
@@ -227,6 +238,8 @@ enum Target {
     Toast(crate::notifications::ToastHit),
     /// Over the taskbar's window previews, maybe on one.
     Preview(Option<crate::preview::PreviewHit>),
+    /// Over the snap layouts panel, maybe on a zone.
+    SnapLayout(Option<usize>),
     Start(StartHit),
     Taskbar(TaskbarHit),
     Window(Hit),
@@ -329,6 +342,15 @@ impl State {
                     }
                     return;
                 }
+                let over_brightness = matches!(self.target(self.pointer_loc), Target::Taskbar(TaskbarHit::Brightness))
+                    || (self.tray.flyout == Some(crate::tray::Flyout::Brightness) && self.flyout_rect().to_f64().contains(self.pointer_loc));
+                if over_brightness {
+                    let v = event.amount(Axis::Vertical).unwrap_or_else(|| event.amount_v120(Axis::Vertical).unwrap_or(0.0) / 8.0);
+                    if v != 0.0 {
+                        self.set_brightness(self.tray.brightness - v.signum() as f32 * 0.05);
+                    }
+                    return;
+                }
                 if matches!(self.tray.flyout, Some(crate::tray::Flyout::Network | crate::tray::Flyout::Calendar)) && self.flyout_rect().to_f64().contains(self.pointer_loc) {
                     let v = event.amount(Axis::Vertical).unwrap_or_else(|| event.amount_v120(Axis::Vertical).unwrap_or(0.0) / 8.0);
                     if v != 0.0 {
@@ -422,6 +444,10 @@ impl State {
                 state.super_tap = false;
             }
 
+            if let Some(cmd) = state.shortcuts.find(mods, &[raw, modified]) {
+                let a = Action::Custom(cmd.to_string());
+                return if pressed { FilterResult::Intercept(a) } else { FilterResult::Forward };
+            }
             if let Some(a) = bind(super_mod, mods, modified).or_else(|| bind(super_mod, mods, raw)) {
                 return if pressed { FilterResult::Intercept(a) } else { FilterResult::Forward };
             }
@@ -490,6 +516,19 @@ impl State {
                 }
             }
             Action::TaskView => self.toggle_desktops(),
+            Action::Custom(cmd) => self.spawn(&cmd),
+            Action::QuickLink => self.open_quick_link_menu(),
+            Action::ShowDesktop => self.show_desktop(),
+            Action::CloseDesktop => {
+                let ws = self.wm.current_workspace;
+                if ws > 0 {
+                    for w in self.wm.windows.iter_mut().filter(|w| w.workspace == ws) {
+                        w.workspace = ws - 1;
+                    }
+                    self.wm.set_workspace(ws - 1);
+                    self.focus_top();
+                }
+            }
             Action::Snap { right } => {
                 if let Some(s) = focused {
                     let a = self.work_area_of(&s);
@@ -834,6 +873,9 @@ impl State {
                 return Target::Menu(m.item_at(pos));
             }
         }
+        if let Some(zone) = self.snap_layouts_at(pos) {
+            return Target::SnapLayout(zone);
+        }
         if let Some(hit) = self.toast_at(pos) {
             return Target::Toast(hit);
         }
@@ -967,7 +1009,9 @@ impl State {
                 self.action_center.panel = None;
             }
             self.hover = match target {
-                Target::Menu(_) | Target::Desktops(_) | Target::ActionCenter(_) | Target::Toast(_) | Target::Preview(_) => Hover::None,
+                Target::Menu(_) | Target::Desktops(_) | Target::ActionCenter(_) | Target::Toast(_) | Target::Preview(_) | Target::SnapLayout(_) => {
+                    Hover::None
+                }
                 Target::Start(h) => Hover::Start(h),
                 Target::Taskbar(h) => Hover::Taskbar(h),
                 Target::Window(Hit::Client(s, origin)) => {
@@ -983,6 +1027,7 @@ impl State {
                 }
                 Target::Window(Hit::Titlebar(_)) | Target::Desktop => Hover::None,
             };
+            self.snap_layouts_track(pos);
             // Over our own chrome we choose the cursor; over a client, the client does.
             if focus.is_none() {
                 self.cursor_status = CursorImageStatus::Named(cursor);
@@ -1104,6 +1149,15 @@ impl State {
             }
         }
 
+        // Snap layouts: a zone snaps the window there; any other click puts them away.
+        if let Target::SnapLayout(zone) = target {
+            if let (true, Some(z)) = (left, zone) {
+                self.snap_layouts_click(z);
+            }
+            return;
+        }
+        self.snap_layouts_close();
+
         // The taskbar previews take their own clicks; any other click puts them away.
         if let Target::Preview(hit) = target {
             match hit {
@@ -1129,18 +1183,25 @@ impl State {
         // Tray flyout: clicks on it drive the slider; clicks elsewhere close it
         // (except on the tray buttons themselves, which toggle).
         if self.tray.flyout.is_some() {
+            if left && self.flyout_pin_rect().to_f64().contains(pos) {
+                self.tray.pinned = !self.tray.pinned;
+                self.needs_redraw = true;
+                return;
+            }
             if self.flyout_rect().to_f64().contains(pos) {
                 if left {
                     self.flyout_press(pos);
                 }
                 return;
             }
-            if !matches!(
-                target,
-                Target::Taskbar(
-                    TaskbarHit::Volume | TaskbarHit::Brightness | TaskbarHit::Network | TaskbarHit::Clock
+            if !self.tray.pinned
+                && !matches!(
+                    target,
+                    Target::Taskbar(
+                        TaskbarHit::Volume | TaskbarHit::Brightness | TaskbarHit::Network | TaskbarHit::Clock
+                    )
                 )
-            ) {
+            {
                 self.close_flyout();
             }
         }
@@ -1260,6 +1321,7 @@ impl State {
                     }
                 } else if right {
                     match hit {
+                        TaskbarHit::Start => self.open_quick_link_menu(),
                         TaskbarHit::Button(i) => self.open_task_button_menu(i, pos.x as i32),
                         TaskbarHit::TrayApp(id) => {
                             self.tray_menu_x = pos.x as i32;
@@ -1337,7 +1399,7 @@ impl State {
                 }
                 forward(self);
             }
-            Target::Menu(_) | Target::Desktops(_) | Target::ActionCenter(_) | Target::Toast(_) | Target::Preview(_) => {}
+            Target::Menu(_) | Target::Desktops(_) | Target::ActionCenter(_) | Target::Toast(_) | Target::Preview(_) | Target::SnapLayout(_) => {}
         }
     }
 

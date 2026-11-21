@@ -22,6 +22,8 @@ mod render;
 mod screenshot;
 mod search;
 mod sni;
+mod shortcuts;
+mod snaplayout;
 mod switcher;
 mod state;
 mod supervisor;
@@ -100,6 +102,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 state.needs_redraw = true;
             }
             state.reload_config_if_changed();
+            state.shortcuts.reload_if_changed();
+        });
+        supervisor::guard("app rescan", || {
+            state.app_poll = state.app_poll.wrapping_add(1);
+            if state.app_poll % 3 == 0 {
+                state.rescan_apps_if_changed();
+            }
         });
         supervisor::guard("supervisor", || state.supervisor_tick());
         supervisor::guard("toasts", || state.toast_tick());

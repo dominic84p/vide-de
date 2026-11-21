@@ -1,0 +1,53 @@
+# Snap layouts, Win+X, Win+D, a pinned flyout, custom shortcuts, apps found without a restart
+# and Start rising from behind the taskbar. Run with XDG_DATA_HOME pointing somewhere
+# disposable: it adds a .desktop file there. Check the shots by eye.
+wait 3
+run exec ./target/release/vide-about
+expect-window vide-about 20
+wait 1.5
+move 720 35
+wait 1.2
+shot 1-snap-layouts
+move 588 92
+wait 0.3
+shot 2-snap-zone-hover
+click 588 92
+wait 1
+shot 3-snapped-left
+key alt+x
+wait 0.8
+shot 4-win-x
+key esc
+wait 0.5
+key alt+d
+wait 1
+shot 5-desktop-shown
+key alt+d
+wait 1
+shot 6-desktop-restored
+click 1190 780
+wait 1
+click 1255 317
+wait 0.5
+click 1000 150
+wait 0.8
+shot 7-calendar-pinned
+click 1255 317
+wait 0.3
+click 1000 150
+wait 0.8
+shot 8-calendar-unpinned
+run sh -c 'mkdir -p "$XDG_CONFIG_HOME/vide-de" && echo "alt+shift+k = ./target/release/emoji-panic" > "$XDG_CONFIG_HOME/vide-de/shortcuts.conf"'
+run sh -c 'mkdir -p "$XDG_DATA_HOME/applications" && printf "[Desktop Entry]\nType=Application\nName=Zebra Test App\nExec=true\n" > "$XDG_DATA_HOME/applications/zebra-test.desktop"'
+wait 4
+key alt+shift+k
+expect-window emoji 15
+wait 1
+shot 9-custom-shortcut
+click 24 780
+wait 0.06
+shot 10-start-rising
+wait 1
+type zebra
+wait 1
+shot 11-new-app-found
