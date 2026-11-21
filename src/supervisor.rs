@@ -110,6 +110,11 @@ impl State {
         });
     }
 
+    /// The process ID of a helper we started, while it runs.
+    pub fn supervised_pid(&self, name: &str) -> Option<u32> {
+        self.supervisor.items.iter().find(|w| w.name == name)?.child.as_ref().map(|c| c.id())
+    }
+
     /// Called every second: notice helpers that died and bring them back.
     pub fn supervisor_tick(&mut self) {
         let mut items = std::mem::take(&mut self.supervisor.items);

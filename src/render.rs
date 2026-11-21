@@ -379,6 +379,31 @@ pub fn elements_with(renderer: &mut GlesRenderer, state: &mut State, view: Recta
         panel_fx(renderer, &v, &mut out, &mut state.anims.action_center, ac_p, now, |e, _| Fx::slide(e.sqrt(), w * (1.0 - e), 0.0));
     });
 
+    // Being remote-controlled: an orange border round every monitor for as long as it lasts, so
+    // it's never a secret (like Windoze's Quick Assist).
+    if state.remote.is_some() {
+        const EDGE: i32 = 4;
+        let edges: Vec<Rectangle<i32, Logical>> = state
+            .monitors
+            .iter()
+            .map(|m| m.geo)
+            .filter(|g| g.overlaps(view))
+            .flat_map(|g| {
+                [
+                    Rectangle::new(g.loc, (g.size.w, EDGE).into()),
+                    Rectangle::new((g.loc.x, g.loc.y + g.size.h - EDGE).into(), (g.size.w, EDGE).into()),
+                    Rectangle::new(g.loc, (EDGE, g.size.h).into()),
+                    Rectangle::new((g.loc.x + g.size.w - EDGE, g.loc.y).into(), (EDGE, g.size.h).into()),
+                ]
+            })
+            .collect();
+        state.remote_border.resize_with(edges.len(), Default::default);
+        for (buf, r) in state.remote_border.iter_mut().zip(edges) {
+            buf.update(r.size, Color32F::new(1.0, 0.55, 0.0, 1.0));
+            out.push(Elem::Solid(SolidColorRenderElement::from_buffer(buf, v.px(r.loc), scale, 1.0, Kind::Unspecified)));
+        }
+    }
+
     // Snipping overlay: everything dimmed except the selection.
     let layout = state.layout_rect();
     if let Some(snip) = state.snip.as_mut() {

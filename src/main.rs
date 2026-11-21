@@ -20,6 +20,7 @@ mod notifications;
 mod osd;
 mod preview;
 mod pins;
+mod remote;
 mod render;
 mod screenshot;
 mod search;

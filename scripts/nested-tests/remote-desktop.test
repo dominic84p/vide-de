@@ -1,0 +1,33 @@
+# The RemoteDesktop portal end to end, called the way xdg-desktop-portal calls it for RustDesk:
+# a session with the screen and input, the "Allow remote control" prompt, then remote pointer
+# moves and clicks. While it runs an orange border shows and a notification offers Stop.
+# The test's private runtime dir has no PipeWire, so the screen itself isn't shared here
+# (RustDesk also calls ScreenCast.SelectSources on the session, which starts a stream).
+wait 4
+run sh -c 'busctl --user call org.freedesktop.impl.portal.desktop.vide /org/freedesktop/portal/desktop org.freedesktop.impl.portal.RemoteDesktop CreateSession "oosa{sv}" /r/1 /s/1 com.rustdesk.RustDesk 0'
+wait 1
+run sh -c 'busctl --user --timeout=60 call org.freedesktop.impl.portal.desktop.vide /org/freedesktop/portal/desktop org.freedesktop.impl.portal.RemoteDesktop Start "oossa{sv}" /r/3 /s/1 com.rustdesk.RustDesk "" 0 > "$XDG_RUNTIME_DIR/start-reply" 2>&1'
+expect-window "Screen Share" 15
+wait 1.5
+shot 1-prompt
+click 344 291
+expect-log "remote control started by com.rustdesk.RustDesk" 10
+wait 1
+run sh -c 'cat "$XDG_RUNTIME_DIR/start-reply"'
+run sh -c 'busctl --user call org.freedesktop.impl.portal.desktop.vide /org/freedesktop/portal/desktop org.freedesktop.impl.portal.RemoteDesktop NotifyPointerMotionAbsolute "oa{sv}udd" /s/1 0 0 700 450'
+wait 0.5
+run sh -c 'busctl --user call org.freedesktop.impl.portal.desktop.vide /org/freedesktop/portal/desktop org.freedesktop.impl.portal.RemoteDesktop NotifyPointerButton "oa{sv}iu" /s/1 0 273 1'
+run sh -c 'busctl --user call org.freedesktop.impl.portal.desktop.vide /org/freedesktop/portal/desktop org.freedesktop.impl.portal.RemoteDesktop NotifyPointerButton "oa{sv}iu" /s/1 0 273 0'
+wait 1
+shot 2-controlled
+key esc
+wait 0.5
+shot 3-before-stop
+# Anything but our own vide-portal asking for remote control is refused.
+ipc remote-begin intruder
+expect-log "not vide-portal" 5
+# Stop in the notification ends it: the border goes, the portal closes the session.
+click 1086 731
+expect-log "remote control by com.rustdesk.RustDesk ended" 5
+wait 1
+shot 4-stopped

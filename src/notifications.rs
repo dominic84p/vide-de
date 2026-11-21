@@ -448,6 +448,7 @@ impl State {
             }
             ActionCenterHit::Close(id) if id == crate::session::PROMPT_ID => self.session_answer("no"),
             ActionCenterHit::Action(id, action) if id == crate::session::PROMPT_ID => self.session_answer(&action),
+            ActionCenterHit::Action(id, _) if id == crate::remote::NOTIF_ID => self.remote_stop(),
             ActionCenterHit::Close(id) => {
                 if let Some(tx) = &self.notif_tx {
                     let _ = tx.send(NotifCmd::Close(id));
@@ -845,6 +846,9 @@ impl State {
         let invoke = |state: &mut State, id: u32, action: &str| {
             if id == crate::session::PROMPT_ID {
                 return state.session_answer(action);
+            }
+            if id == crate::remote::NOTIF_ID {
+                return state.remote_stop();
             }
             if let Some(tx) = &state.notif_tx {
                 let _ = tx.send(NotifCmd::InvokeAction(id, action.to_string()));

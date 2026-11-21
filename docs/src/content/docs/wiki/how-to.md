@@ -19,8 +19,8 @@ light_mode=true
 
 ## Add a Keybinding
 
-Keybindings aren't configurable yet. They live in `bind()` in `src/input.rs`; add an arm there
-and rebuild with `cargo build --release --workspace`.
+Put a line like `super+shift+t = konsole` in `~/.config/vide-de/shortcuts.conf`; it works within
+a second. See [Keybindings](/vide-de/reference/keybindings/) for the format.
 
 ## Pin an App to the Taskbar
 
@@ -55,9 +55,25 @@ pasted into the app you're in.
 
 Not built in yet. `wf-recorder` and OBS work, through our screencast portal (`vide-portal`).
 
+## Let Someone Control This PC (RustDesk)
+
+RustDesk (and other remote desktop apps) ask through the RemoteDesktop portal, which
+`vide-portal` provides. When someone connects, VIDE-DE asks **Allow remote control**: the app
+wants to see your screen and use your mouse and keyboard. It asks every time; there's no
+"remember", since this hands over the whole desktop.
+
+While someone is in control an orange border runs round every monitor and a notification says
+which app is controlling the PC. **Stop** in it ends the session at once. Only our own
+`vide-portal` can turn remote control on, so another program on the control socket can't.
+
+This needs the portal files from `scripts/install.sh` (`vide.portal` lists RemoteDesktop, and
+`vide-portals.conf` points it at us).
+
 ## Start an App with the Session
 
-`VIBE_STARTUP` runs a command once the compositor (and Xwayland) is up:
+Apps in `~/.config/autostart` (and `/etc/xdg/autostart`) start at login, as on other desktops;
+see [Autostart & Session Restore](/vide-de/components/session/). For testing, `VIBE_STARTUP`
+runs a command once the compositor (and Xwayland) is up:
 
 ```bash
 VIBE_STARTUP=firefox vibe-comp --tty

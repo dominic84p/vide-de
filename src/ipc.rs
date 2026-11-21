@@ -11,6 +11,8 @@
 //! - `windows`: replies with one line per window, `id<TAB>pid<TAB>minimized<TAB>app_id<TAB>title`
 //!   (Task Mangler's "Apps" are the processes that own a window)
 //! - `focus-window <id>` / `close-window <id>`: Task Mangler's "Switch to" and polite End task
+//! - `remote-begin <app>`: from vide-portal only, after the user allowed remote control; the
+//!   connection then carries that session's input (remote.rs)
 
 use std::{
     io::{BufRead, BufReader, Write},
@@ -64,6 +66,9 @@ fn handle_client(state: &mut State, stream: UnixStream) {
     let (cmd, arg) = line.split_once(' ').unwrap_or((line, ""));
     match cmd {
         "snip" => state.start_screenshot(true),
+        // Remote control for the RemoteDesktop portal: the connection stays open and carries
+        // the input. Only our own vide-portal may open one (see remote.rs).
+        "remote-begin" => return state.remote_begin(stream, arg),
         "screenshot" => {
             // `screenshot /some/file.png` is for tests only.
             if !arg.is_empty() {
@@ -138,7 +143,7 @@ fn handle_client(state: &mut State, stream: UnixStream) {
 }
 
 /// Evdev key codes for the names tests use.
-fn evdev_key(name: &str) -> Option<u32> {
+pub fn evdev_key(name: &str) -> Option<u32> {
     Some(match name {
         "esc" | "escape" => 1,
         "backspace" => 14,
@@ -158,6 +163,12 @@ fn evdev_key(name: &str) -> Option<u32> {
         "," | "comma" => 51,
         "." | "dot" => 52,
         "/" | "slash" => 53,
+        "`" | "grave" => 41,
+        "[" => 26,
+        "]" => 27,
+        "\\" => 43,
+        ";" => 39,
+        "'" => 40,
         "0" => 11,
         d if d.len() == 1 && d.as_bytes()[0].is_ascii_digit() => 1 + (d.as_bytes()[0] - b'0') as u32,
         c if c.len() == 1 && c.as_bytes()[0].is_ascii_lowercase() => {
@@ -170,7 +181,7 @@ fn evdev_key(name: &str) -> Option<u32> {
 }
 
 impl State {
-    fn now_ms(&self) -> u32 {
+    pub fn now_ms(&self) -> u32 {
         self.start_time.elapsed().as_millis() as u32
     }
 

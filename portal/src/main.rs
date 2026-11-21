@@ -1,5 +1,5 @@
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     ffi::c_void,
     io::{BufRead, BufReader, Read, Write},
     os::unix::net::UnixStream,
@@ -137,6 +137,13 @@ fn save_perm(app_id: &str, perm: Perm) {
     let _ = std::fs::write(&path, format!("{}\n", lines.join("\n")));
 }
 
+/// Remote control is asked about every time, never remembered.
+fn ask_user_control(app_id: &str) -> bool {
+    let Ok(exe) = std::env::current_exe() else { return false };
+    let key = if app_id.is_empty() { "An application" } else { app_id };
+    Command::new(exe).args(["--prompt-control", key]).status().is_ok_and(|s| s.success())
+}
+
 fn ask_user_permission(app_id: &str) -> bool {
     if let Some(p) = check_perm(app_id) {
         return p == Perm::Allow;
@@ -149,89 +156,57 @@ fn ask_user_permission(app_id: &str) -> bool {
         .is_ok_and(|s| s.success())
 }
 
-struct PortalSession {
-    path: OwnedObjectPath,
-    sessions: Arc<Mutex<HashMap<OwnedObjectPath, ActiveCast>>>,
+/// What a portal session (screen cast, maybe with remote control) has running.
+#[derive(Clone)]
+struct Shared {
     conn: Connection,
+    casts: Arc<Mutex<HashMap<OwnedObjectPath, ActiveCast>>>,
+    /// Remote control: the open connection to the compositor that carries the input.
+    remotes: Arc<Mutex<HashMap<OwnedObjectPath, UnixStream>>>,
+    /// Sessions that asked for the screen (ScreenCast.SelectSources), so a remote desktop
+    /// session shares it when it starts.
+    wants_screen: Arc<Mutex<HashSet<OwnedObjectPath>>>,
 }
 
-#[interface(name = "org.freedesktop.impl.portal.Session")]
-impl PortalSession {
-    fn close(&self) {
-        self.sessions.lock().unwrap().remove(&self.path);
+impl Shared {
+    fn new_session(&self, path: &OwnedObjectPath) {
+        let sess = PortalSession { path: path.clone(), shared: self.clone() };
+        let _ = self.conn.object_server().at(path, sess);
+    }
+
+    /// Stop everything a session has running and drop its object. With `tell`, also let the
+    /// frontend (and so the app) know it's over: the user ended it, not the app.
+    fn end(&self, path: &OwnedObjectPath, tell: bool) {
+        self.casts.lock().unwrap().remove(path);
+        if let Some(s) = self.remotes.lock().unwrap().remove(path) {
+            let _ = s.shutdown(std::net::Shutdown::Both);
+        }
+        self.wants_screen.lock().unwrap().remove(path);
         let conn = self.conn.clone();
-        let path = self.path.clone();
+        let path = path.clone();
         std::thread::spawn(move || {
+            if tell {
+                let _ = conn.emit_signal(None::<()>, &path, "org.freedesktop.impl.portal.Session", "Closed", &());
+            }
             let _ = conn.object_server().remove::<PortalSession, _>(&path);
         });
     }
 
-    #[zbus(property, name = "version")]
-    fn version(&self) -> u32 {
-        1
-    }
-}
-
-struct ScreenCastPortal {
-    conn: Connection,
-    sessions: Arc<Mutex<HashMap<OwnedObjectPath, ActiveCast>>>,
-}
-
-#[interface(name = "org.freedesktop.impl.portal.ScreenCast")]
-impl ScreenCastPortal {
-    fn create_session(
-        &self,
-        _handle: OwnedObjectPath,
-        session_handle: OwnedObjectPath,
-        _app_id: String,
-        _options: HashMap<String, OwnedValue>,
-    ) -> (u32, HashMap<String, OwnedValue>) {
-        let sess = PortalSession {
-            path: session_handle.clone(),
-            sessions: self.sessions.clone(),
-            conn: self.conn.clone(),
-        };
-        let _ = self.conn.object_server().at(&session_handle, sess);
-        (0, HashMap::new())
-    }
-
-    fn select_sources(
-        &self,
-        _handle: OwnedObjectPath,
-        _session_handle: OwnedObjectPath,
-        _app_id: String,
-        _options: HashMap<String, OwnedValue>,
-    ) -> (u32, HashMap<String, OwnedValue>) {
-        (0, HashMap::new())
-    }
-
-    fn start(
-        &self,
-        _handle: OwnedObjectPath,
-        session_handle: OwnedObjectPath,
-        _parent_window: String,
-        app_id: String,
-        _options: HashMap<String, OwnedValue>,
-    ) -> (u32, HashMap<String, OwnedValue>) {
-        if !ask_user_permission(&app_id) {
-            return (1, HashMap::new());
-        }
-
+    /// Share the screen into a new PipeWire stream: (node id, width, height).
+    fn start_cast(&self, session: &OwnedObjectPath) -> Option<(u32, u32, u32)> {
         let (w, h) = screen_size();
         ipc_send("screencast-start");
-
         let ctx_ptr = unsafe { pw_cast_start(w, h, 30) };
         if ctx_ptr.is_null() {
             ipc_send("screencast-stop");
-            return (2, HashMap::new());
+            return None;
         }
         let node_id = unsafe { pw_cast_node_id(ctx_ptr) };
         if node_id == 0 {
             unsafe { pw_cast_stop(ctx_ptr) };
             ipc_send("screencast-stop");
-            return (2, HashMap::new());
+            return None;
         }
-
         let stop = Arc::new(AtomicBool::new(false));
         let stop_bg = stop.clone();
         let pw = PwHandle(ctx_ptr);
@@ -259,20 +234,120 @@ impl ScreenCastPortal {
             }
             unsafe { pw_cast_stop(pw.0) };
         });
+        self.casts.lock().unwrap().insert(session.clone(), ActiveCast { stop, thread: Some(thread) });
+        Some((node_id, w, h))
+    }
 
-        self.sessions.lock().unwrap().insert(
-            session_handle,
-            ActiveCast { stop, thread: Some(thread) },
-        );
+    /// Ask the compositor to take input from this session. It only listens to us (it checks
+    /// who's on the socket) and only after this, and it shows that the desktop is being
+    /// controlled for as long as the connection stays open.
+    fn start_remote(&self, session: &OwnedObjectPath, app_id: &str) -> bool {
+        let Some(sock) = ipc_socket() else { return false };
+        let Ok(mut stream) = UnixStream::connect(sock) else { return false };
+        let name = if app_id.is_empty() { "An app" } else { app_id };
+        if stream.write_all(format!("remote-begin {name}\n").as_bytes()).is_err() {
+            return false;
+        }
+        let _ = stream.set_read_timeout(Some(Duration::from_secs(2)));
+        let mut reply = String::new();
+        let Ok(reader) = stream.try_clone() else { return false };
+        let mut reader = BufReader::new(reader);
+        if reader.read_line(&mut reply).is_err() || reply.trim() != "ok" {
+            eprintln!("vide-portal: the compositor refused remote control ({:?})", reply.trim());
+            return false;
+        }
+        // The compositor hanging up (its Stop button) ends the whole session.
+        let _ = reader.get_ref().set_read_timeout(None);
+        let shared = self.clone();
+        let path = session.clone();
+        std::thread::spawn(move || {
+            let mut buf = [0u8; 64];
+            while matches!(reader.read(&mut buf), Ok(n) if n > 0) {}
+            if shared.remotes.lock().unwrap().contains_key(&path) {
+                shared.end(&path, true);
+            }
+        });
+        self.remotes.lock().unwrap().insert(session.clone(), stream);
+        true
+    }
 
-        let mut props: HashMap<String, OwnedValue> = HashMap::new();
-        props.insert("position".into(), Value::from((0i32, 0i32)).try_into().unwrap());
-        props.insert("size".into(), Value::from((w as i32, h as i32)).try_into().unwrap());
-        props.insert("source_type".into(), Value::from(1u32).try_into().unwrap());
+    /// One input event for the compositor, if the session has remote control.
+    fn send(&self, session: &OwnedObjectPath, line: String) {
+        if let Some(s) = self.remotes.lock().unwrap().get_mut(session) {
+            let _ = s.write_all(line.as_bytes());
+        }
+    }
+}
 
-        let streams: Vec<(u32, HashMap<String, OwnedValue>)> = vec![(node_id, props)];
+struct PortalSession {
+    path: OwnedObjectPath,
+    shared: Shared,
+}
+
+#[interface(name = "org.freedesktop.impl.portal.Session")]
+impl PortalSession {
+    fn close(&self) {
+        self.shared.end(&self.path, false);
+    }
+
+    #[zbus(property, name = "version")]
+    fn version(&self) -> u32 {
+        1
+    }
+}
+
+fn stream_results(node_id: u32, w: u32, h: u32) -> OwnedValue {
+    let mut props: HashMap<String, OwnedValue> = HashMap::new();
+    props.insert("position".into(), Value::from((0i32, 0i32)).try_into().unwrap());
+    props.insert("size".into(), Value::from((w as i32, h as i32)).try_into().unwrap());
+    props.insert("source_type".into(), Value::from(1u32).try_into().unwrap());
+    let streams: Vec<(u32, HashMap<String, OwnedValue>)> = vec![(node_id, props)];
+    Value::from(streams).try_into().unwrap()
+}
+
+struct ScreenCastPortal {
+    shared: Shared,
+}
+
+#[interface(name = "org.freedesktop.impl.portal.ScreenCast")]
+impl ScreenCastPortal {
+    fn create_session(
+        &self,
+        _handle: OwnedObjectPath,
+        session_handle: OwnedObjectPath,
+        _app_id: String,
+        _options: HashMap<String, OwnedValue>,
+    ) -> (u32, HashMap<String, OwnedValue>) {
+        self.shared.new_session(&session_handle);
+        (0, HashMap::new())
+    }
+
+    fn select_sources(
+        &self,
+        _handle: OwnedObjectPath,
+        session_handle: OwnedObjectPath,
+        _app_id: String,
+        _options: HashMap<String, OwnedValue>,
+    ) -> (u32, HashMap<String, OwnedValue>) {
+        self.shared.wants_screen.lock().unwrap().insert(session_handle);
+        (0, HashMap::new())
+    }
+
+    // The spec's order: app id, then parent window.
+    fn start(
+        &self,
+        _handle: OwnedObjectPath,
+        session_handle: OwnedObjectPath,
+        app_id: String,
+        _parent_window: String,
+        _options: HashMap<String, OwnedValue>,
+    ) -> (u32, HashMap<String, OwnedValue>) {
+        if !ask_user_permission(&app_id) {
+            return (1, HashMap::new());
+        }
+        let Some((node_id, w, h)) = self.shared.start_cast(&session_handle) else { return (2, HashMap::new()) };
         let mut results: HashMap<String, OwnedValue> = HashMap::new();
-        results.insert("streams".into(), Value::from(streams).try_into().unwrap());
+        results.insert("streams".into(), stream_results(node_id, w, h));
         (0, results)
     }
 
@@ -289,6 +364,109 @@ impl ScreenCastPortal {
     #[zbus(property, name = "version")]
     fn version(&self) -> u32 {
         4
+    }
+}
+
+/// RemoteDesktop: RustDesk and friends letting someone else use this desktop. One prompt
+/// covers both seeing the screen and using the mouse and keyboard, and it's asked every time:
+/// "remember my choice" isn't offered for handing over control.
+struct RemoteDesktopPortal {
+    shared: Shared,
+}
+
+/// `devices` bits, as the portal numbers them.
+const KEYBOARD: u32 = 1;
+const POINTER: u32 = 2;
+
+#[interface(name = "org.freedesktop.impl.portal.RemoteDesktop")]
+impl RemoteDesktopPortal {
+    fn create_session(
+        &self,
+        _handle: OwnedObjectPath,
+        session_handle: OwnedObjectPath,
+        _app_id: String,
+        _options: HashMap<String, OwnedValue>,
+    ) -> (u32, HashMap<String, OwnedValue>) {
+        self.shared.new_session(&session_handle);
+        (0, HashMap::new())
+    }
+
+    fn select_devices(
+        &self,
+        _handle: OwnedObjectPath,
+        _session_handle: OwnedObjectPath,
+        _app_id: String,
+        _options: HashMap<String, OwnedValue>,
+    ) -> (u32, HashMap<String, OwnedValue>) {
+        (0, HashMap::new())
+    }
+
+    fn start(
+        &self,
+        _handle: OwnedObjectPath,
+        session_handle: OwnedObjectPath,
+        app_id: String,
+        _parent_window: String,
+        _options: HashMap<String, OwnedValue>,
+    ) -> (u32, HashMap<String, OwnedValue>) {
+        if !ask_user_control(&app_id) {
+            return (1, HashMap::new());
+        }
+        let mut results: HashMap<String, OwnedValue> = HashMap::new();
+        if self.shared.wants_screen.lock().unwrap().contains(&session_handle) {
+            let Some((node_id, w, h)) = self.shared.start_cast(&session_handle) else { return (2, HashMap::new()) };
+            results.insert("streams".into(), stream_results(node_id, w, h));
+        }
+        if !self.shared.start_remote(&session_handle, &app_id) {
+            self.shared.end(&session_handle, false);
+            return (2, HashMap::new());
+        }
+        results.insert("devices".into(), Value::from(KEYBOARD | POINTER).try_into().unwrap());
+        (0, results)
+    }
+
+    fn notify_pointer_motion(&self, session_handle: OwnedObjectPath, _options: HashMap<String, OwnedValue>, dx: f64, dy: f64) {
+        self.shared.send(&session_handle, format!("motion {dx} {dy}\n"));
+    }
+
+    // One stream, the whole screen from (0, 0), so its coordinates are the desktop's.
+    fn notify_pointer_motion_absolute(&self, session_handle: OwnedObjectPath, _options: HashMap<String, OwnedValue>, _stream: u32, x: f64, y: f64) {
+        self.shared.send(&session_handle, format!("abs {x} {y}\n"));
+    }
+
+    fn notify_pointer_button(&self, session_handle: OwnedObjectPath, _options: HashMap<String, OwnedValue>, button: i32, state: u32) {
+        self.shared.send(&session_handle, format!("button {button} {state}\n"));
+    }
+
+    fn notify_pointer_axis(&self, session_handle: OwnedObjectPath, _options: HashMap<String, OwnedValue>, dx: f64, dy: f64) {
+        self.shared.send(&session_handle, format!("axis {dx} {dy}\n"));
+    }
+
+    fn notify_pointer_axis_discrete(&self, session_handle: OwnedObjectPath, _options: HashMap<String, OwnedValue>, axis: u32, steps: i32) {
+        self.shared.send(&session_handle, format!("axis-discrete {axis} {steps}\n"));
+    }
+
+    fn notify_keyboard_keycode(&self, session_handle: OwnedObjectPath, _options: HashMap<String, OwnedValue>, keycode: i32, state: u32) {
+        self.shared.send(&session_handle, format!("key {keycode} {state}\n"));
+    }
+
+    fn notify_keyboard_keysym(&self, session_handle: OwnedObjectPath, _options: HashMap<String, OwnedValue>, keysym: i32, state: u32) {
+        self.shared.send(&session_handle, format!("keysym {keysym} {state}\n"));
+    }
+
+    // Touch isn't offered (`AvailableDeviceTypes`), so these never carry anything.
+    fn notify_touch_down(&self, _session_handle: OwnedObjectPath, _options: HashMap<String, OwnedValue>, _stream: u32, _slot: u32, _x: f64, _y: f64) {}
+    fn notify_touch_motion(&self, _session_handle: OwnedObjectPath, _options: HashMap<String, OwnedValue>, _stream: u32, _slot: u32, _x: f64, _y: f64) {}
+    fn notify_touch_up(&self, _session_handle: OwnedObjectPath, _options: HashMap<String, OwnedValue>, _slot: u32) {}
+
+    #[zbus(property)]
+    fn available_device_types(&self) -> u32 {
+        KEYBOARD | POINTER
+    }
+
+    #[zbus(property, name = "version")]
+    fn version(&self) -> u32 {
+        1
     }
 }
 
@@ -315,6 +493,8 @@ impl ScreenshotPortal {
 
 struct PromptApp {
     app_id: String,
+    /// Asking to let the app use the mouse and keyboard too, not just see the screen.
+    control: bool,
     remember: bool,
     allowed: Arc<AtomicBool>,
     decided: Arc<AtomicBool>,
@@ -335,10 +515,15 @@ impl eframe::App for PromptApp {
         egui::CentralPanel::default()
             .frame(egui::Frame::new().fill(Color32::WHITE).inner_margin(22.0))
             .show(ui, |ui| {
-                ui.label(RichText::new("Share your screen").font(FontId::proportional(20.0)).color(Color32::from_rgb(0x11, 0x11, 0x11)));
+                let title = if self.control { "Allow remote control" } else { "Share your screen" };
+                ui.label(RichText::new(title).font(FontId::proportional(20.0)).color(Color32::from_rgb(0x11, 0x11, 0x11)));
                 ui.add_space(6.0);
                 ui.label(
-                    RichText::new(format!("\"{}\" wants to view the contents of your screen.", self.app_id))
+                    RichText::new(if self.control {
+                        format!("\"{}\" wants to see your screen and use your mouse and keyboard.", self.app_id)
+                    } else {
+                        format!("\"{}\" wants to view the contents of your screen.", self.app_id)
+                    })
                         .size(13.5)
                         .color(Color32::from_rgb(0x44, 0x44, 0x44)),
                 );
@@ -357,7 +542,15 @@ impl eframe::App for PromptApp {
                         );
                     });
                 ui.add_space(12.0);
-                ui.checkbox(&mut self.remember, "Remember my choice for this app");
+                if self.control {
+                    ui.label(
+                        RichText::new("Whoever is on the other end can do anything you can. An orange border shows while they're in control; Stop in the notification ends it.")
+                            .size(12.0)
+                            .color(Color32::from_rgb(0x60, 0x60, 0x60)),
+                    );
+                } else {
+                    ui.checkbox(&mut self.remember, "Remember my choice for this app");
+                }
                 ui.add_space(16.0);
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if ui.add_sized([92.0, 30.0], egui::Button::new("Deny")).clicked() {
@@ -369,7 +562,7 @@ impl eframe::App for PromptApp {
                         ctx.send_viewport_cmd(egui::ViewportCommand::Close);
                     }
                     ui.add_space(8.0);
-                    let share = egui::Button::new(RichText::new("Share").color(Color32::WHITE))
+                    let share = egui::Button::new(RichText::new(if self.control { "Allow" } else { "Share" }).color(Color32::WHITE))
                         .fill(Color32::from_rgb(0x00, 0x78, 0xd7));
                     if ui.add_sized([92.0, 30.0], share).clicked() {
                         if self.remember {
@@ -384,7 +577,7 @@ impl eframe::App for PromptApp {
     }
 }
 
-fn run_prompt(app_id: String) -> ! {
+fn run_prompt(app_id: String, control: bool) -> ! {
     let allowed = Arc::new(AtomicBool::new(false));
     let decided = Arc::new(AtomicBool::new(false));
     let allowed_c = allowed.clone();
@@ -392,7 +585,7 @@ fn run_prompt(app_id: String) -> ! {
     let size = screen_size();
     let opts = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
-            .with_inner_size([430.0, 235.0])
+            .with_inner_size([430.0, if control { 262.0 } else { 235.0 }])
             .with_resizable(false)
             .with_always_on_top(),
         ..Default::default()
@@ -404,6 +597,7 @@ fn run_prompt(app_id: String) -> ! {
             vide_fonts::install_egui!(eframe::egui, cc.egui_ctx);
             Ok(Box::new(PromptApp {
                 app_id,
+                control,
                 remember: false,
                 allowed: allowed_c,
                 decided: decided_c,
@@ -417,21 +611,24 @@ fn run_prompt(app_id: String) -> ! {
 
 fn main() {
     let mut args = std::env::args().skip(1);
-    if args.next().as_deref() == Some("--prompt") {
-        let app_id = args.next().unwrap_or_else(|| "An application".into());
-        run_prompt(app_id);
+    match args.next().as_deref() {
+        Some("--prompt") => run_prompt(args.next().unwrap_or_else(|| "An application".into()), false),
+        Some("--prompt-control") => run_prompt(args.next().unwrap_or_else(|| "An application".into()), true),
+        _ => {}
     }
 
     let Ok(conn) = Connection::session() else {
         eprintln!("vide-portal: failed to connect to session D-Bus");
         std::process::exit(1);
     };
-    let sessions = Arc::new(Mutex::new(HashMap::new()));
-    let screencast = ScreenCastPortal {
+    let shared = Shared {
         conn: conn.clone(),
-        sessions,
+        casts: Arc::new(Mutex::new(HashMap::new())),
+        remotes: Arc::new(Mutex::new(HashMap::new())),
+        wants_screen: Arc::new(Mutex::new(HashSet::new())),
     };
-    let _ = conn.object_server().at("/org/freedesktop/portal/desktop", screencast);
+    let _ = conn.object_server().at("/org/freedesktop/portal/desktop", ScreenCastPortal { shared: shared.clone() });
+    let _ = conn.object_server().at("/org/freedesktop/portal/desktop", RemoteDesktopPortal { shared });
     let _ = conn.object_server().at("/org/freedesktop/portal/desktop", ScreenshotPortal);
     if let Err(e) = conn.request_name("org.freedesktop.impl.portal.desktop.vide") {
         eprintln!("vide-portal: failed to claim D-Bus name: {e}");

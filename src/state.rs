@@ -211,6 +211,10 @@ pub struct State {
     /// The other monitors' taskbars (sidebars.rs), by monitor index, and what's hovered on them.
     pub side_bars: Vec<Option<crate::ui::Taskbar>>,
     pub side_hover: Option<(usize, TaskbarHit)>,
+    /// Someone controlling the desktop through the RemoteDesktop portal (remote.rs).
+    pub remote: Option<crate::remote::Remote>,
+    /// The border shown round each monitor meanwhile.
+    pub remote_border: Vec<smithay::backend::renderer::element::solid::SolidColorBuffer>,
     pub start_drag: Option<crate::pins::StartDrag>,
     pub file_index: crate::search::FileIndex,
     pub menu: Option<crate::menu::Menu>,
@@ -393,6 +397,8 @@ impl State {
             snap_assist: None,
             side_bars: Vec::new(),
             side_hover: None,
+            remote: None,
+            remote_border: Vec::new(),
             shortcuts: {
                 let mut s = crate::shortcuts::Shortcuts::default();
                 s.reload_if_changed();
