@@ -400,6 +400,16 @@ pub fn elements_with(renderer: &mut GlesRenderer, state: &mut State, view: Recta
         });
     });
 
+    // Snap assist: live thumbnails over its picture, on the empty side of the screen.
+    crate::supervisor::guard("snap assist", || {
+        if let Some((buf, at, thumbs)) = state.snap_assist_picture() {
+            for (s, area) in thumbs {
+                out.extend(live_thumbnail(renderer, &v, state, &s, area, 1.0));
+            }
+            out.extend(image(renderer, &v, &buf, at, Kind::Unspecified));
+        }
+    });
+
     // Snap layouts, dropped from a maximize button.
     crate::supervisor::guard("snap layouts", || {
         if let Some((buf, at)) = state.snap_layouts_picture() {
@@ -541,20 +551,40 @@ pub fn elements_with(renderer: &mut GlesRenderer, state: &mut State, view: Recta
             out
         })
         .unwrap_or_default();
+    // Aero Peek: the window looked at shows even if minimized; the rest fade away.
+    let peeked = state.peeked_window().cloned();
+    let peek_alpha: Vec<(WlSurface, f32)> = state
+        .wm
+        .windows
+        .iter()
+        .map(|w| {
+            let (a, fading) = state.peek_alpha(w.surface());
+            animating |= fading;
+            (w.surface().clone(), a)
+        })
+        .collect();
     // Windoze, top to bottom (only current workspace).
     let font = state.font.as_ref();
     let icons = &mut state.icons;
     let apps = &state.apps;
     // A window being minimized is still drawn (shrinking away) until its animation ends.
-    for w in state.wm.windows.iter_mut().rev().filter(|w| (!w.minimized || w.vanish.is_some()) && w.mapped && w.workspace == state.wm.current_workspace) {
+    for w in state.wm.windows.iter_mut().rev().filter(|w| {
+        (!w.minimized || w.vanish.is_some() || peeked.as_ref() == Some(w.surface())) && w.mapped && w.workspace == state.wm.current_workspace
+    }) {
         let button = buttons.iter().find(|(s, _)| s == w.surface()).map(|(_, p)| *p);
         let mut fx = window_fx(w, anim_on, button, &mut animating).unwrap_or(Fx::fade(1.0));
         if let Some((dx, alpha)) = desk_slide {
             fx.offset.x += dx;
             fx.alpha *= alpha;
         }
-        if w.minimized && w.vanish.is_none() {
+        if w.minimized && w.vanish.is_none() && peeked.as_ref() != Some(w.surface()) {
             continue;
+        }
+        if let Some((_, a)) = peek_alpha.iter().find(|(s, _)| s == w.surface()) {
+            fx.alpha *= a;
+            if fx.alpha <= 0.001 {
+                continue;
+            }
         }
         let active = Some(w.surface()) == focused.as_ref();
         let sloc = w.surface_loc();

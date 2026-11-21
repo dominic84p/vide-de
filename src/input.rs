@@ -65,6 +65,7 @@ enum Action {
     ClipboardHistory,
     /// A command from shortcuts.conf.
     Custom(String),
+    CloseSnapAssist,
     /// Win+X: the power-user menu over the Start button.
     QuickLink,
     /// Win+D: minimize everything, or bring it back.
@@ -240,6 +241,8 @@ enum Target {
     Preview(Option<crate::preview::PreviewHit>),
     /// Over the snap layouts panel, maybe on a zone.
     SnapLayout(Option<usize>),
+    /// Over snap assist's side of the screen, maybe on a window.
+    SnapAssist(Option<usize>),
     Start(StartHit),
     Taskbar(TaskbarHit),
     Window(Hit),
@@ -460,6 +463,9 @@ impl State {
             if state.desktops.open && pressed && modified == Keysym::Escape {
                 return FilterResult::Intercept(Action::CloseDesktops);
             }
+            if state.snap_assist.is_some() && pressed && modified == Keysym::Escape {
+                return FilterResult::Intercept(Action::CloseSnapAssist);
+            }
             if state.menu.is_some() && pressed && modified == Keysym::Escape {
                 return FilterResult::Intercept(Action::CloseMenu);
             }
@@ -510,6 +516,7 @@ impl State {
             }
             Action::TaskView => self.toggle_desktops(),
             Action::Custom(cmd) => self.spawn(&cmd),
+            Action::CloseSnapAssist => self.snap_assist_close(),
             Action::QuickLink => self.open_quick_link_menu(),
             Action::ShowDesktop => self.show_desktop(),
             Action::CloseDesktop => {
@@ -529,6 +536,7 @@ impl State {
                     let x = if right { a.loc.x + a.size.w - half } else { a.loc.x };
                     let zone = Rectangle::new((x, a.loc.y).into(), (half, a.size.h).into());
                     self.wm.snap(&s, zone, a);
+                    self.snap_assist_offer(&s, zone, a);
                 }
             }
             Action::Maximize => {
@@ -872,6 +880,9 @@ impl State {
         if let Some(zone) = self.snap_layouts_at(pos) {
             return Target::SnapLayout(zone);
         }
+        if let Some(tile) = self.snap_assist_at(pos) {
+            return Target::SnapAssist(tile);
+        }
         if let Some(hit) = self.toast_at(pos) {
             return Target::Toast(hit);
         }
@@ -961,6 +972,10 @@ impl State {
         if self.wm.grab.is_some() {
             let area = self.work_area_on(self.monitor_at(pos));
             self.wm.update_grab(pos, 0, area);
+            if let Some(crate::wm::Grab::Move { surface, .. }) = &self.wm.grab {
+                let s = surface.clone();
+                self.shake_track(&s, pos);
+            }
         } else {
             let mut cursor = CursorIcon::Default;
             let target = self.target(pos);
@@ -996,6 +1011,19 @@ impl State {
                 _ => None,
             };
             self.preview_track(button, matches!(target, Target::Preview(_)));
+            let assist_hover = match &target {
+                Target::SnapAssist(h) => *h,
+                _ => None,
+            };
+            if let Some(a) = self.snap_assist.as_mut().filter(|a| a.hover != assist_hover) {
+                a.hover = assist_hover;
+                self.needs_redraw = true;
+            }
+            let bar_hit = match &target {
+                Target::Taskbar(h) => Some(h),
+                _ => None,
+            };
+            self.peek_track(bar_hit, preview_hover);
             let fly_hover = if self.flyout_rect().to_f64().contains(pos) { self.flyout_action(pos) } else { None };
             if self.tray.hover != fly_hover {
                 self.tray.hover = fly_hover;
@@ -1005,9 +1033,13 @@ impl State {
                 self.action_center.panel = None;
             }
             self.hover = match target {
-                Target::Menu(_) | Target::Desktops(_) | Target::ActionCenter(_) | Target::Toast(_) | Target::Preview(_) | Target::SnapLayout(_) => {
-                    Hover::None
-                }
+                Target::Menu(_)
+                | Target::Desktops(_)
+                | Target::ActionCenter(_)
+                | Target::Toast(_)
+                | Target::Preview(_)
+                | Target::SnapLayout(_)
+                | Target::SnapAssist(_) => Hover::None,
                 Target::Start(h) => Hover::Start(h),
                 Target::Taskbar(h) => Hover::Taskbar(h),
                 Target::Window(Hit::Client(s, origin)) => {
@@ -1117,7 +1149,15 @@ impl State {
         if state == ButtonState::Released {
             if self.wm.grab.is_some() && button == BTN_LEFT {
                 let area = self.work_area_on(self.monitor_at(self.pointer_loc));
+                let dropped = match (&self.wm.grab, self.wm.snap_preview) {
+                    (Some(crate::wm::Grab::Move { surface, .. }), Some(zone)) => Some((surface.clone(), zone)),
+                    _ => None,
+                };
                 self.wm.end_grab(area);
+                self.shake_reset();
+                if let Some((s, zone)) = dropped {
+                    self.snap_assist_offer(&s, zone, area);
+                }
             }
             return forward(self);
         }
@@ -1127,6 +1167,8 @@ impl State {
             return forward(self);
         }
 
+        // A click ends any peek; what it lands on decides the rest.
+        self.peek_end();
         let pos = self.pointer_loc;
         let left = button == BTN_LEFT;
         let right = button == BTN_RIGHT;
@@ -1144,6 +1186,16 @@ impl State {
                 _ => self.taskbar_peek = true,
             }
         }
+
+        // Snap assist: a window fills the empty side; any other click leaves it empty.
+        if let Target::SnapAssist(tile) = target {
+            match tile {
+                Some(i) if left => self.snap_assist_pick(i),
+                _ => self.snap_assist_close(),
+            }
+            return;
+        }
+        self.snap_assist_close();
 
         // Snap layouts: a zone snaps the window there; any other click puts them away.
         if let Target::SnapLayout(zone) = target {
@@ -1395,7 +1447,13 @@ impl State {
                 }
                 forward(self);
             }
-            Target::Menu(_) | Target::Desktops(_) | Target::ActionCenter(_) | Target::Toast(_) | Target::Preview(_) | Target::SnapLayout(_) => {}
+            Target::Menu(_)
+            | Target::Desktops(_)
+            | Target::ActionCenter(_)
+            | Target::Toast(_)
+            | Target::Preview(_)
+            | Target::SnapLayout(_)
+            | Target::SnapAssist(_) => {}
         }
     }
 

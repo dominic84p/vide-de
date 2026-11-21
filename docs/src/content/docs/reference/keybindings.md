@@ -86,6 +86,9 @@ a vertical bar, fading out about 1.6 s after the last press.
 | Move window | Drag the titlebar, or `Super+Left Drag` anywhere on the window |
 | Resize window | Drag an edge or corner |
 | Maximize / restore | Double-click the titlebar |
+| Snap assist | After snapping a window to one side (drag to an edge, `Super+Left/Right`, or a snap layout), the other side shows your other windows; click one to fill it, `Esc` or a click elsewhere leaves it empty |
+| Aero Shake | Grab a titlebar and shake it: every other window on this desktop minimizes; shake again to bring them back |
+| Aero Peek | Rest on the taskbar's far right corner to see the desktop through your windows, or on a taskbar preview to see just that window in its place |
 | Switch desktop | `Scroll` over the Task View button |
 | Show window menu | `Right Click` (titlebar or taskbar button) |
 | New window of that app | `Middle Click` (taskbar button) |

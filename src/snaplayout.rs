@@ -164,7 +164,8 @@ impl State {
         );
         self.wm.unmaximize(&s);
         self.wm.snap(&s, rect, area);
-        self.focus(Some(s), SERIAL_COUNTER.next_serial());
+        self.focus(Some(s.clone()), SERIAL_COUNTER.next_serial());
+        self.snap_assist_offer(&s, rect, area);
     }
 
     pub fn snap_layouts_picture(&mut self) -> Option<(MemoryRenderBuffer, Point<i32, Logical>)> {

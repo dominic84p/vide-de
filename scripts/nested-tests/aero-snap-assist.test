@@ -1,0 +1,53 @@
+# Snap assist offers the other windows after a snap; Aero Peek on the taskbar corner shows the
+# desktop; Aero Shake on a titlebar minimizes the rest and a second shake brings them back.
+# Check the shots by eye.
+wait 3
+run exec ./target/release/vide-about
+expect-window vide-about 20
+run exec ./target/release/vide-settings
+expect-window Settings 20
+run exec ./target/release/file-exploder
+expect-window exploder 20
+wait 2
+key alt+left
+wait 1
+shot 1-snap-assist
+move 900 300
+wait 0.3
+shot 2-assist-hover
+click 900 300
+wait 1
+shot 3-assist-filled
+move 1277 780
+wait 1
+shot 4-peek-desktop
+move 640 400
+wait 0.5
+move 300 15
+down
+move 360 15
+move 420 15
+move 300 15
+move 200 15
+move 320 15
+move 430 15
+move 300 15
+move 190 15
+move 320 15
+up
+wait 1
+shot 5-shaken
+move 300 15
+down
+move 420 15
+move 300 15
+move 190 15
+move 320 15
+move 430 15
+move 300 15
+move 190 15
+move 320 15
+move 430 15
+up
+wait 1
+shot 6-shaken-back

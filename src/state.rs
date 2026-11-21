@@ -199,6 +199,11 @@ pub struct State {
     pub session: crate::session::Session,
     /// Scrolling over our own chrome: the part of a step not taken yet (see `scroll_notches`).
     pub scroll_acc: f64,
+    /// Aero Shake and Aero Peek (aero.rs).
+    pub shake: crate::aero::Shake,
+    pub peek: crate::aero::Peek,
+    /// After a snap: the other windows offered for the empty side (snapassist.rs).
+    pub snap_assist: Option<crate::snapassist::Assist>,
     pub start_drag: Option<crate::pins::StartDrag>,
     pub file_index: crate::search::FileIndex,
     pub menu: Option<crate::menu::Menu>,
@@ -374,6 +379,9 @@ impl State {
             snap: Default::default(),
             session: Default::default(),
             scroll_acc: 0.0,
+            shake: Default::default(),
+            peek: Default::default(),
+            snap_assist: None,
             shortcuts: {
                 let mut s = crate::shortcuts::Shortcuts::default();
                 s.reload_if_changed();

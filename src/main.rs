@@ -1,3 +1,4 @@
+mod aero;
 mod anim;
 mod apps;
 mod autostart;
@@ -25,6 +26,7 @@ mod search;
 mod session;
 mod sni;
 mod shortcuts;
+mod snapassist;
 mod snaplayout;
 mod switcher;
 mod state;
