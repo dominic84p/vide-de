@@ -90,9 +90,9 @@ impl State {
     }
 
     fn preview_show(&mut self, i: usize, windows: Vec<WlSurface>, centre_x: i32) {
-        let w = strip_width(windows.len());
+        let (w, h) = Grid::of(windows.len(), self.output_size.w, self.output_size.h).size();
         let x = (centre_x - w / 2).clamp(0, (self.output_size.w - w).max(0));
-        let y = self.output_size.h - TASKBAR_H - TILE_H - 2 * PAD;
+        let y = (self.output_size.h - TASKBAR_H - h).max(0);
         self.preview.shown = Some((i, windows, Point::from((x, y))));
         self.preview.hover = None;
         self.needs_redraw = true;
@@ -108,7 +108,11 @@ impl State {
 
     pub fn preview_rect(&self) -> Option<Rectangle<i32, Logical>> {
         let (_, windows, at) = self.preview.shown.as_ref()?;
-        Some(Rectangle::new(*at, (strip_width(windows.len()), TILE_H + 2 * PAD).into()))
+        Some(Rectangle::new(*at, self.preview_grid(windows.len()).size().into()))
+    }
+
+    fn preview_grid(&self, n: usize) -> Grid {
+        Grid::of(n, self.output_size.w, self.output_size.h)
     }
 
     /// What in the strip is under `p`, if the strip is there at all.
@@ -119,12 +123,10 @@ impl State {
         }
         let local: Point<i32, Logical> = (p - r.loc.to_f64()).to_i32_round();
         let n: usize = self.preview.shown.as_ref().map_or(0, |(_, w, _)| w.len());
-        let i = ((local.x - PAD) / TILE_W).clamp(0, n as i32 - 1) as usize;
-        let tile_x = PAD + i as i32 * TILE_W;
-        if local.y < PAD || local.y >= PAD + TILE_H {
-            return Some(None);
-        }
-        let close = Rectangle::new((tile_x + TILE_W - CLOSE, PAD).into(), (CLOSE, TITLE_H).into());
+        let g = self.preview_grid(n);
+        let Some(i) = (0..n).find(|&i| g.cell(i).contains(local)) else { return Some(None) };
+        let cell = g.cell(i);
+        let close = Rectangle::new((cell.loc.x + cell.size.w - CLOSE, cell.loc.y).into(), (CLOSE, g.title_h()).into());
         Some(Some(if close.contains(local) { PreviewHit::Close(i) } else { PreviewHit::Window(i) }))
     }
 
@@ -160,44 +162,93 @@ impl State {
         let active: Vec<bool> = windows.iter().map(|s| Some(s) == focused.as_ref()).collect();
         let key = format!("{titles:?}{active:?}{:?}{}", self.preview.hover, crate::theme::light());
         if self.preview.picture.as_ref().is_none_or(|(k, _)| *k != key) {
-            self.preview.picture = Some((key, draw(self.font.as_ref(), &titles, &active, self.preview.hover)));
+            let g = self.preview_grid(windows.len());
+            self.preview.picture = Some((key, draw(self.font.as_ref(), &g, &titles, &active, self.preview.hover)));
         }
         let buf = self.preview.picture.as_ref().unwrap().1.clone();
-        let thumbs = windows
-            .into_iter()
-            .enumerate()
-            .map(|(i, s)| {
-                let loc = at + Point::from((PAD + i as i32 * TILE_W + 12, PAD + TITLE_H));
-                (s, Rectangle::new(loc, THUMB.into()))
-            })
-            .collect();
+        // Too many windows for thumbnails (a list of titles instead): none drawn.
+        let g = self.preview_grid(windows.len());
+        let thumbs = if g.list {
+            Vec::new()
+        } else {
+            windows
+                .into_iter()
+                .enumerate()
+                .map(|(i, s)| {
+                    let loc = at + g.cell(i).loc + Point::from((12, TITLE_H));
+                    (s, Rectangle::new(loc, THUMB.into()))
+                })
+                .collect()
+        };
         Some((buf, at, thumbs))
     }
 }
 
-fn strip_width(n: usize) -> i32 {
-    n as i32 * TILE_W + 2 * PAD
+const LIST_W: i32 = 320;
+const LIST_ROW: i32 = 32;
+
+/// How the strip lays out `n` windows: a row of thumbnails while they fit across the screen,
+/// otherwise a list of titles, in as many columns as it takes to fit above the taskbar.
+struct Grid {
+    n: usize,
+    list: bool,
+    cols: usize,
+    rows: usize,
 }
 
-fn draw(font: Option<&fontdue::Font>, titles: &[String], active: &[bool], hover: Option<PreviewHit>) -> MemoryRenderBuffer {
-    let mut c = Canvas::new(strip_width(titles.len()), TILE_H + 2 * PAD);
+impl Grid {
+    fn of(n: usize, screen_w: i32, screen_h: i32) -> Self {
+        if n as i32 * TILE_W + 2 * PAD <= screen_w {
+            return Grid { n, list: false, cols: n, rows: 1 };
+        }
+        let max_rows = ((screen_h - TASKBAR_H - 2 * PAD) / LIST_ROW).max(1) as usize;
+        let cols = n.div_ceil(max_rows).max(1);
+        Grid { n, list: true, cols, rows: n.div_ceil(cols) }
+    }
+
+    fn cell_size(&self) -> (i32, i32) {
+        if self.list { (LIST_W, LIST_ROW) } else { (TILE_W, TILE_H) }
+    }
+
+    fn title_h(&self) -> i32 {
+        if self.list { LIST_ROW } else { TITLE_H }
+    }
+
+    fn size(&self) -> (i32, i32) {
+        let (w, h) = self.cell_size();
+        (self.cols as i32 * w + 2 * PAD, self.rows as i32 * h + 2 * PAD)
+    }
+
+    /// Column by column, so the list reads top to bottom like the Windoze one.
+    fn cell(&self, i: usize) -> Rectangle<i32, Logical> {
+        let (w, h) = self.cell_size();
+        let (col, row) = if self.list { (i / self.rows, i % self.rows) } else { (i, 0) };
+        Rectangle::new((PAD + col as i32 * w, PAD + row as i32 * h).into(), (w, h).into())
+    }
+}
+
+fn draw(font: Option<&fontdue::Font>, g: &Grid, titles: &[String], active: &[bool], hover: Option<PreviewHit>) -> MemoryRenderBuffer {
+    let (w, h) = g.size();
+    let mut c = Canvas::new(w, h);
     c.fill(th().taskbar);
-    for (i, title) in titles.iter().enumerate() {
-        let x = PAD + i as i32 * TILE_W;
+    let title_h = g.title_h();
+    for (i, title) in titles.iter().enumerate().take(g.n) {
+        let cell = g.cell(i);
+        let (x, y) = (cell.loc.x, cell.loc.y);
         let hovered = matches!(hover, Some(PreviewHit::Window(j) | PreviewHit::Close(j)) if j == i);
         if hovered || active[i] {
-            c.rect(x, PAD, TILE_W, TILE_H, if hovered { th().hover } else { th().active });
+            c.rect(x, y, cell.size.w, cell.size.h, if hovered { th().hover } else { th().active });
         }
         if let Some(f) = font {
-            let t = ellipsize(f, 12.0, title, TILE_W - 24 - CLOSE);
-            c.text(f, 12.0, x + 12, PAD, TITLE_H, th().text, &t);
+            let t = ellipsize(f, 12.0, title, cell.size.w - 24 - CLOSE);
+            c.text(f, 12.0, x + 12, y, title_h, th().text, &t);
         }
         if hovered {
-            let cx = x + TILE_W - CLOSE;
+            let cx = x + cell.size.w - CLOSE;
             if hover == Some(PreviewHit::Close(i)) {
-                c.rect(cx, PAD, CLOSE, TITLE_H, crate::canvas::hex(0xe81123));
+                c.rect(cx, y, CLOSE, title_h, crate::canvas::hex(0xe81123));
             }
-            let (mx, my) = (cx as f32 + CLOSE as f32 / 2.0, PAD as f32 + TITLE_H as f32 / 2.0);
+            let (mx, my) = (cx as f32 + CLOSE as f32 / 2.0, y as f32 + title_h as f32 / 2.0);
             c.line(mx - 5.0, my - 5.0, mx + 5.0, my + 5.0, 1.2, th().text);
             c.line(mx + 5.0, my - 5.0, mx - 5.0, my + 5.0, 1.2, th().text);
         }

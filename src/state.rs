@@ -182,6 +182,9 @@ pub struct State {
     pub task_drag: Option<crate::pins::TaskDrag>,
     /// Taskbar buttons in the order they were dragged into; empty until the first drag.
     pub task_order: Vec<crate::pins::TaskKey>,
+    /// The taskbar was used over a fullscreen app, so it stays up after the menu or flyout
+    /// that brought it closes, until the user goes back to the app (clicks or types in it).
+    pub taskbar_peek: bool,
     pub start_drag: Option<crate::pins::StartDrag>,
     pub file_index: crate::search::FileIndex,
     pub menu: Option<crate::menu::Menu>,
@@ -350,6 +353,7 @@ impl State {
             pins: crate::pins::Pins::load(),
             task_drag: None,
             task_order: Vec::new(),
+            taskbar_peek: false,
             start_drag: None,
             file_index: Default::default(),
             menu: None,
@@ -447,11 +451,12 @@ impl State {
     /// A focused fullscreen app hides the taskbar, unless something that belongs to it is
     /// open: Start (Super over a game), a taskbar button's menu, a tray flyout, the Action
     /// Center or Task View. Otherwise right-clicking a taskbar button under Start closed
-    /// Start and took the taskbar away along with it.
+    /// Start and took the taskbar away along with it. Once clicked, it stays (`taskbar_peek`).
     pub fn taskbar_shown(&self) -> bool {
         let focused = self.focused();
         let fullscreen_top = self.wm.fullscreen_in_front(focused.as_ref());
         !fullscreen_top
+            || self.taskbar_peek
             || self.start.open
             || self.menu.is_some()
             || self.tray.flyout.is_some()
@@ -494,6 +499,10 @@ impl State {
     pub fn focus(&mut self, surface: Option<WlSurface>, serial: Serial) {
         if self.pointer_focus.as_ref().map(|(s, _)| s) != surface.as_ref() {
             self.release_pointer();
+        }
+        // Switching to a window (fullscreen or not) ends a peek at the taskbar.
+        if surface.is_some() && surface != self.focused() {
+            self.taskbar_peek = false;
         }
         let mut restored = false;
         if let Some(s) = &surface {

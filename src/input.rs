@@ -37,6 +37,7 @@ use crate::{
 
 const BTN_LEFT: u32 = 0x110;
 const BTN_RIGHT: u32 = 0x111;
+const BTN_MIDDLE: u32 = 0x112;
 const DOUBLE_CLICK: Duration = Duration::from_millis(400);
 
 /// Our own app binaries live next to the compositor's.
@@ -455,6 +456,11 @@ impl State {
                 // The start menu takes all typing while open.
                 let k = if pressed { menu_key(modified, modified.key_char()) } else { MenuKey::Ignore };
                 return FilterResult::Intercept(Action::Menu(k));
+            }
+            // Typing into the app again: a taskbar kept up over it goes away.
+            if pressed && state.taskbar_peek && !state.shell_overlay_open() && !state.action_center.open {
+                state.taskbar_peek = false;
+                state.needs_redraw = true;
             }
             FilterResult::Forward
         });
@@ -1086,10 +1092,27 @@ impl State {
         let target = self.target(pos);
         self.needs_redraw = true;
 
+        // Over a fullscreen app, a click on the taskbar or anything it opened keeps the taskbar
+        // up after that thing closes; a click into a window goes back to the app.
+        if self.taskbar_shown() {
+            let over_flyout = self.tray.flyout.is_some() && self.flyout_rect().to_f64().contains(pos);
+            match target {
+                _ if over_flyout => self.taskbar_peek = true,
+                Target::Window(_) | Target::Desktop => self.taskbar_peek = false,
+                Target::Toast(_) => {}
+                _ => self.taskbar_peek = true,
+            }
+        }
+
         // The taskbar previews take their own clicks; any other click puts them away.
         if let Target::Preview(hit) = target {
-            if let (true, Some(hit)) = (left, hit) {
-                self.preview_click(hit);
+            match hit {
+                Some(hit) if left => self.preview_click(hit),
+                // Middle click closes it, as on Windoze.
+                Some(crate::preview::PreviewHit::Window(i) | crate::preview::PreviewHit::Close(i)) if button == BTN_MIDDLE => {
+                    self.preview_click(crate::preview::PreviewHit::Close(i))
+                }
+                _ => {}
             }
             return;
         }
@@ -1245,6 +1268,10 @@ impl State {
                             }
                         }
                         _ => {}
+                    }
+                } else if button == BTN_MIDDLE {
+                    if let TaskbarHit::Button(i) = hit {
+                        self.launch_from_task_button(i);
                     }
                 }
             }

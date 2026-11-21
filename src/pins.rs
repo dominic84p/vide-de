@@ -201,15 +201,16 @@ impl State {
         Some(crate::ui::Preview { name, icon, kind: self.result_kind(e), location, actions })
     }
 
-    /// Taskbar buttons: pinned apps first (with their windows grouped under them),
-    /// then a button per other window on this desktop.
+    /// Taskbar buttons: pinned apps first (with their windows grouped under them), then a
+    /// button per other app on this desktop, its windows grouped under it like Windoze and KDE
+    /// do (37 Firefox windows are one button, not 37).
     pub fn taskbar_items(&self, focused: Option<&WlSurface>) -> Vec<TaskItem> {
         let mut windows: Vec<_> =
             self.wm.windows.iter().filter(|w| w.mapped && w.workspace == self.wm.current_workspace).collect();
         windows.sort_by_key(|w| w.id);
         let app_of = |w: &&crate::wm::Window| crate::apps::match_app(&self.apps, &w.app_id()).map(|a| a.id.clone());
         let is_focused = |w: &&crate::wm::Window| !w.minimized && Some(w.surface()) == focused;
-        let mut out = Vec::new();
+        let mut out: Vec<TaskItem> = Vec::new();
         for id in &self.pins.taskbar {
             let Some(app) = self.apps.iter().find(|a| &a.id == id) else { continue };
             let mine: Vec<_> = windows.iter().filter(|w| app_of(w).as_ref() == Some(id)).collect();
@@ -223,24 +224,43 @@ impl State {
             });
         }
         for w in &windows {
-            if app_of(w).is_some_and(|id| self.pins.taskbar.contains(&id)) {
+            let app = app_of(w);
+            if app.as_ref().is_some_and(|id| self.pins.taskbar.contains(id)) {
                 continue;
             }
             let app_id = w.app_id();
-            let icon = if app_id.is_empty() {
-                self.client_proc_name(w.surface())
-                    .map(|p| crate::apps::icon_for_app_id(&self.apps, &p))
-                    .unwrap_or_default()
-            } else {
-                crate::apps::icon_for_app_id(&self.apps, &app_id)
+            let proc = if app_id.is_empty() { self.client_proc_name(w.surface()) } else { None };
+            let icon = match &proc {
+                Some(p) => crate::apps::icon_for_app_id(&self.apps, p),
+                None if app_id.is_empty() => String::new(),
+                None => crate::apps::icon_for_app_id(&self.apps, &app_id),
             };
+            // What groups it: its desktop entry, else its app id, else the program behind it.
+            // Xwayland's clients all share one process, so that alone can't group X11 windows.
+            let key = match (app, proc) {
+                (Some(id), _) => TaskKey::App(id),
+                (None, _) if !app_id.is_empty() => TaskKey::Group(app_id.clone()),
+                (None, Some(p)) if w.x11().is_none() => TaskKey::Group(p),
+                _ => TaskKey::Window(w.id),
+            };
+            if let Some(item) = out.iter_mut().find(|it| it.key == key && !matches!(key, TaskKey::Window(_))) {
+                item.windows.push(w.surface().clone());
+                item.focused |= is_focused(w);
+                // A group is named for its app, not for whichever window came first.
+                if let TaskKey::App(id) = &key {
+                    if let Some(a) = self.apps.iter().find(|a| &a.id == id) {
+                        item.title = a.name.clone();
+                    }
+                }
+                continue;
+            }
             out.push(TaskItem {
                 windows: vec![w.surface().clone()],
                 title: w.title(),
                 icon,
                 pinned: None,
                 focused: is_focused(w),
-                key: TaskKey::Window(w.id),
+                key,
             });
         }
         // Where buttons were dragged to; anything new (a window just opened) goes at the end.
@@ -339,6 +359,18 @@ impl State {
                 };
                 self.focus(Some(next), smithay::utils::SERIAL_COUNTER.next_serial());
             }
+        }
+    }
+
+    /// Middle click: another window of that app, as on Windoze and KDE.
+    pub fn launch_from_task_button(&mut self, i: usize) {
+        let Some(item) = self.taskbar.as_ref().and_then(|t| t.key.items.get(i)).cloned() else { return };
+        let id = match &item.key {
+            TaskKey::App(id) => Some(id.clone()),
+            _ => item.windows.first().and_then(|s| self.wm.find(s)).and_then(|w| crate::apps::match_app(&self.apps, &w.app_id())).map(|a| a.id.clone()),
+        };
+        if let Some(app) = id.and_then(|id| self.apps.iter().find(|a| a.id == id).cloned()) {
+            self.launch(&app);
         }
     }
 
@@ -449,10 +481,13 @@ impl State {
     }
 }
 
-/// What a taskbar button stands for: a pinned app, or one window of an app that isn't pinned.
+/// What a taskbar button stands for: an app (pinned or running), or a lone window we can't
+/// tell the app of.
 #[derive(Clone, PartialEq, Debug)]
 pub enum TaskKey {
     App(String),
+    /// Windows of an app with no desktop entry, by app id (or program name).
+    Group(String),
     Window(u64),
 }
 

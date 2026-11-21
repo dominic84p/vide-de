@@ -1,0 +1,30 @@
+# Three windows of one app share one taskbar button with a count. Over a fullscreen app, the
+# taskbar summoned with Super stays up after a taskbar action (opening and closing the
+# calendar) and goes away again on a click into the app. Check the shots by eye.
+wait 3
+run exec ./target/release/vide-about
+expect-window vide-about 20
+run exec ./target/release/vide-about
+run exec ./target/release/vide-about
+wait 3
+windows
+shot 1-grouped
+move 520 780
+wait 1.2
+shot 2-group-preview
+click 640 300
+wait 0.5
+key alt+f
+wait 1.5
+shot 3-fullscreen-no-taskbar
+key alt+space
+wait 1
+click 1190 780
+wait 1
+shot 4-calendar-over-fullscreen
+click 1190 780
+wait 1
+shot 5-taskbar-stays
+click 640 300
+wait 1
+shot 6-back-to-app

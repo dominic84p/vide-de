@@ -230,6 +230,14 @@ pub fn draw_taskbar(
         if item.windows.len() > 1 {
             c.rect(x + TASK_W - 3, 4, 1, TASKBAR_H - 8, th().divider);
         }
+        // A group of several: how many, as KDE shows it, since one button now stands for them all.
+        if let (true, Some(f)) = (item.windows.len() > 1, font) {
+            let n = if item.windows.len() > 99 { "99+".to_string() } else { item.windows.len().to_string() };
+            let bw = (measure(f, 10.0, &n) + 6).max(15);
+            let bx = x + TASK_W - bw - 4;
+            c.round_rect(bx, 5, bw, 15, 7, ACCENT);
+            c.text(f, 10.0, bx + (bw - measure(f, 10.0, &n)) / 2, 5, 15, ON_ACCENT, &n);
+        }
         hits.push((rect(x, 0, TASK_W, TASKBAR_H), hit));
         x += TASK_W;
     }

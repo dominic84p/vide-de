@@ -108,11 +108,26 @@ fn on_pin_click(&mut self, pin: &PinEntry, button: MouseButton) {
 }
 ```
 
+## Grouping
+
+Every app gets one taskbar button, however many windows it has open, like Windoze 10 and KDE:
+37 Firefox windows are one Firefox button with a **37** badge in its corner. Windows group by
+their desktop entry, else by app id, else (Wayland only) by the program behind them. Clicking a
+group steps through its windows; hovering it shows them all (see below). **Middle-click** a
+button to open another window of that app.
+
+## Over fullscreen apps
+
+A fullscreen app hides the taskbar. Super (or anything else that brings the taskbar up) shows
+it again, and once you click on it, it stays up after the menu or flyout you used closes, until
+you click or type in the app again.
+
 ## Window Previews (`preview.rs`)
 
 Rest the pointer on a running app's button for about half a second and a strip of live
 thumbnails of its windows rises above the button, like Windoze's. Click a thumbnail to switch
-to that window, or the ✕ on its title to close it. Moving onto another running app's button
+to that window, or the ✕ on its title (or middle-click it) to close it. A group with too many
+windows for thumbnails to fit across the screen shows a list of their titles instead. Moving onto another running app's button
 swaps the strip at once; moving anywhere else, or clicking, puts it away. It doesn't show while
 Start, a menu, a flyout, the Action Center or Task View is open.
 
