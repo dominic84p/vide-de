@@ -25,6 +25,8 @@ It automatically handles all safety isolation:
 - Gives test apps the nested Xwayland's `DISPLAY`, never the host's, so X11 apps can't open on the real screen.
 - Sets `VIBE_TEST_INPUT=1` so the test script can inject clicks, keys, and diagnostic commands over `$VIDE_IPC`.
 
+Options: `--config FILE` starts with that `settings.conf`, `--session FILE` with that `session.conf` (as if a session had been saved), `--startup CMD` runs a program at startup.
+
 **Test file commands** (used in `scripts/nested-tests/*.test`):
 - `run <cmd>` / `run-host <cmd>` — launch an app inside the nested session (or on the host)
 - `expect-window <title>` — wait for a window with matching title (supports quoted strings)

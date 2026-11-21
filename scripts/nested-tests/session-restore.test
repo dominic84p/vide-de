@@ -1,0 +1,15 @@
+# Run with --session scripts/nested-tests/data/session-restore.conf: the "Restore previous
+# session?" toast shows a few seconds after login; Restore session reopens Settings and File
+# Exploder where they were on desktop 1, and PowerSlop maximized on desktop 2.
+wait 4.5
+shot 1-prompt
+click 994 731
+expect-log "restoring 3 windows" 3
+expect-window Settings 20
+expect-window "File Exploder" 20
+wait 3
+windows
+shot 2-desktop-1
+key alt+2
+wait 1.5
+shot 3-desktop-2

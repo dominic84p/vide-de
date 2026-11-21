@@ -195,6 +195,8 @@ pub struct State {
     pub snap: crate::snaplayout::SnapState,
     /// The user's own key binds (shortcuts.conf).
     pub shortcuts: crate::shortcuts::Shortcuts,
+    /// Saving the open apps, and bringing them back after the next login.
+    pub session: crate::session::Session,
     pub start_drag: Option<crate::pins::StartDrag>,
     pub file_index: crate::search::FileIndex,
     pub menu: Option<crate::menu::Menu>,
@@ -368,6 +370,7 @@ impl State {
             taskbar_peek: false,
             desktop_shown: None,
             snap: Default::default(),
+            session: Default::default(),
             shortcuts: {
                 let mut s = crate::shortcuts::Shortcuts::default();
                 s.reload_if_changed();
@@ -717,9 +720,14 @@ impl State {
         if let Some(desktop) = crate::input::own_app("vide-desktop") {
             self.supervise("vide-desktop", &format!("exec {desktop}"));
         }
+        for (name, cmd) in crate::autostart::commands() {
+            tracing::info!("autostart {name}: {cmd}");
+            self.spawn(&cmd);
+        }
         if let Some(cmd) = self.startup.take() {
             self.spawn(&cmd);
         }
+        self.session_offer();
     }
 
     pub fn launch(&mut self, app: &App) {
@@ -948,7 +956,11 @@ impl CompositorHandler for State {
             while let Some(parent) = get_parent(&root) {
                 root = parent;
             }
+            let first_map = self.wm.find(&root).is_some_and(|w| !w.mapped);
             self.wm.on_commit(&root);
+            if first_map {
+                self.session_place(&root);
+            }
             self.layer_commit(&root);
             // Before the first configure goes out, so the app's first buffer is already sharp.
             self.send_scale(&root);

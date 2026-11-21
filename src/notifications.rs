@@ -435,6 +435,8 @@ impl State {
     pub fn action_center_click(&mut self, hit: ActionCenterHit) {
         match hit {
             ActionCenterHit::ClearAll => {
+                // Clearing the restore prompt away counts as a no.
+                self.session_answer("no");
                 if let Some(tx) = &self.notif_tx {
                     for n in &self.action_center.notifications {
                         let _ = tx.send(NotifCmd::Close(n.id));
@@ -444,6 +446,8 @@ impl State {
                 self.action_center.panel = None;
                 self.needs_redraw = true;
             }
+            ActionCenterHit::Close(id) if id == crate::session::PROMPT_ID => self.session_answer("no"),
+            ActionCenterHit::Action(id, action) if id == crate::session::PROMPT_ID => self.session_answer(&action),
             ActionCenterHit::Close(id) => {
                 if let Some(tx) = &self.notif_tx {
                     let _ = tx.send(NotifCmd::Close(id));
@@ -839,6 +843,9 @@ impl State {
 
     pub fn toast_click(&mut self, hit: ToastHit) {
         let invoke = |state: &mut State, id: u32, action: &str| {
+            if id == crate::session::PROMPT_ID {
+                return state.session_answer(action);
+            }
             if let Some(tx) = &state.notif_tx {
                 let _ = tx.send(NotifCmd::InvokeAction(id, action.to_string()));
             }

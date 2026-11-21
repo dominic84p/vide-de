@@ -607,7 +607,10 @@ impl State {
                 self.show_osd(crate::osd::OsdKind::Brightness);
             }
             Action::Screenshot { region } => self.start_screenshot(region),
-            Action::Quit => self.running = false,
+            Action::Quit => {
+                self.session_save_now();
+                self.running = false;
+            }
             Action::Vt(n) => self.pending_vt = Some(n),
             Action::Workspace(ws) => {
                 self.wm.set_workspace(ws);
@@ -1404,6 +1407,7 @@ impl State {
     }
 
     pub fn power(&mut self, a: PowerAction) {
+        self.session_save_now();
         match a {
             PowerAction::SignOut => self.running = false,
             PowerAction::Restart => self.spawn("systemctl reboot"),

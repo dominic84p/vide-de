@@ -12,6 +12,7 @@
 # Usage: scripts/nested-test.sh [options] TESTFILE
 #   -o DIR          where screenshots and logs go (default: target/nested-test)
 #   --config FILE   a settings.conf to start with (default: none, so defaults)
+#   --session FILE  a session.conf to start with, as if a session had been saved before
 #   --startup CMD   a program for the compositor to start, like VIBE_STARTUP
 #   --real-bus      let `run-host` programs use your real D-Bus (read-only things, like
 #                   `flatpak permissions`); apps given `run` never do
@@ -37,6 +38,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OUT="$ROOT/target/nested-test"
 CONFIG=""
+SESSION=""
 STARTUP=""
 REALBUS=0
 TIMEOUT=120
@@ -45,10 +47,11 @@ while [ $# -gt 0 ]; do
   case "$1" in
     -o) OUT="$2"; shift 2 ;;
     --config) CONFIG="$2"; shift 2 ;;
+    --session) SESSION="$2"; shift 2 ;;
     --startup) STARTUP="$2"; shift 2 ;;
     --real-bus) REALBUS=1; shift ;;
     --timeout) TIMEOUT="$2"; shift 2 ;;
-    -h | --help) sed -n '2,37p' "$0"; exit 0 ;;
+    -h | --help) sed -n '2,38p' "$0"; exit 0 ;;
     *) TEST="$1"; shift ;;
   esac
 done
@@ -63,6 +66,7 @@ mkdir -p "$OUT"
 RT="$(mktemp -d /tmp/vide-nt.XXXXXX)"
 CF="$RT/config"; mkdir -p "$CF/vide-de"
 [ -n "$CONFIG" ] && cp "$CONFIG" "$CF/vide-de/settings.conf"
+[ -n "$SESSION" ] && cp "$SESSION" "$CF/vide-de/session.conf"
 # Session startup launches the KDE wallet when nothing on the (private) bus provides a keyring, and
 # that pops a password prompt over every test. Nothing here needs a keyring.
 mkdir -p "$RT/bin"

@@ -48,6 +48,7 @@ export default defineConfig({
 						{ label: 'StatusNotifierItem (sni.rs)', slug: 'components/sni' },
 						{ label: 'System Tray (tray.rs)', slug: 'components/tray' },
 						{ label: 'Virtual Desktops (desktops.rs)', slug: 'components/desktops' },
+						{ label: 'Autostart & Session Restore', slug: 'components/session' },
 						{ label: 'Start Menu Search (search.rs)', slug: 'components/search' },
 						{ label: 'Screenshots & Snipping (screenshot.rs)', slug: 'components/screenshot' },
 						{ label: 'IPC Socket (ipc.rs)', slug: 'components/ipc' },

@@ -119,7 +119,7 @@ fn parse(text: &str) -> Option<App> {
 }
 
 /// `firefox %u` → `firefox`. We launch apps without file arguments.
-fn strip_field_codes(exec: &str) -> String {
+pub fn strip_field_codes(exec: &str) -> String {
     let mut out = String::new();
     let mut chars = exec.chars().peekable();
     while let Some(c) = chars.next() {

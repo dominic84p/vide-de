@@ -1,5 +1,6 @@
 mod anim;
 mod apps;
+mod autostart;
 mod calendar;
 mod canvas;
 mod clipboard;
@@ -21,6 +22,7 @@ mod pins;
 mod render;
 mod screenshot;
 mod search;
+mod session;
 mod sni;
 mod shortcuts;
 mod snaplayout;
@@ -104,6 +106,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             state.reload_config_if_changed();
             state.shortcuts.reload_if_changed();
         });
+        supervisor::guard("session", || state.session_tick());
         supervisor::guard("app rescan", || {
             state.app_poll = state.app_poll.wrapping_add(1);
             if state.app_poll % 3 == 0 {
