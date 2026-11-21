@@ -116,6 +116,20 @@ their desktop entry, else by app id, else (Wayland only) by the program behind t
 group steps through its windows; hovering it shows them all (see below). **Middle-click** a
 button to open another window of that app.
 
+## Dragging buttons
+
+Any taskbar button can be dragged along the taskbar. It follows the pointer, and the buttons it
+passes slide aside to their new slots; let go and it glides into place. Pinned apps keep their
+new order.
+
+## Every monitor
+
+Each monitor has a taskbar. The main one has everything; the others have Start, search, Task
+View, the clock, show desktop, and a button for each app with a window on that monitor (the tray
+and the Action Center stay on the main one, as on Windoze 10). Maximized and snapped windows
+stop at whichever taskbar is on their monitor, and jump lists and menus open on the monitor they
+were opened from. A fullscreen window on a monitor hides that monitor's taskbar.
+
 ## New apps
 
 Start notices apps you install or remove (their `.desktop` files, in `$XDG_DATA_HOME` and

@@ -1,0 +1,17 @@
+# Run with VIBE_NESTED_MONITORS=2: the second monitor has its own taskbar with only its
+# windows on it, and maximizing there stops at that taskbar. Check the shots by eye.
+wait 3
+run exec ./target/release/vide-settings
+expect-window Settings 20
+move 1000 300
+wait 0.3
+run exec ./target/release/vide-about
+expect-window vide-about 20
+wait 1.5
+shot 1-two-taskbars
+key alt+up
+wait 1
+shot 2-maximized-on-second
+click 1111 780 right
+wait 0.8
+shot 3-jumplist-on-second

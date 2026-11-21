@@ -1,0 +1,26 @@
+# Dragging a taskbar button: it follows the pointer, and the buttons it passes slide aside
+# instead of jumping. Check the mid-drag shots by eye.
+run target/release/vide-settings
+expect-window Settings 30
+wait 1
+run target/release/vide-about
+expect-window "About VIDE-DE" 30
+wait 1.5
+shot 1-before
+move 568 780
+down
+move 550 780
+move 530 780
+move 515 780
+shot 2-mid-drag
+move 495 780
+move 470 780
+wait 0.05
+shot 3-pushing
+move 445 780
+move 424 780
+wait 0.4
+shot 4-held-first
+up
+wait 0.5
+shot 5-dropped

@@ -85,6 +85,11 @@ pub struct TaskItem {
     pub focused: bool,
     /// What the button is, for keeping it where it was dragged.
     pub key: crate::pins::TaskKey,
+    /// Drawn this far from its slot: following the pointer while dragged, or sliding into
+    /// its new place after the order changed.
+    pub dx: i32,
+    /// Held by the pointer: drawn above the buttons it passes.
+    pub held: bool,
 }
 
 #[derive(Clone, PartialEq)]
@@ -109,6 +114,9 @@ pub struct TaskbarKey {
     /// Action Center button: notifications waiting, and how many arrived unseen.
     pub notifications: (bool, usize),
     pub action_center_open: bool,
+    /// Another monitor's taskbar: Start, search, Task View, its windows, the clock. The tray
+    /// and the Action Center stay on the main one, as on Windoze.
+    pub secondary: bool,
 }
 
 pub struct Taskbar {
@@ -197,14 +205,20 @@ pub fn draw_taskbar(
     hits.push((rect(tv_x, 0, TASK_W, TASKBAR_H), TaskbarHit::TaskView));
 
     // Window buttons.
-    let right_edge = w - CLOCK_W - NOTIFY_W - SHOW_DESKTOP_W;
-    const TRAY_ITEMS: i32 = 3;
-    let apps_x = right_edge - TRAY_W * TRAY_ITEMS - TRAY_W * key.tray_apps.len() as i32;
-    let mut x = TASK_BUTTONS_X;
-    for (i, item) in key.items.iter().enumerate() {
-        if x + TASK_W > apps_x {
-            break;
-        }
+    let notify_w = if key.secondary { 0 } else { NOTIFY_W };
+    let right_edge = w - CLOCK_W - notify_w - SHOW_DESKTOP_W;
+    let tray_items = if key.secondary { 0 } else { 3 };
+    let apps_x = right_edge - TRAY_W * tray_items - TRAY_W * key.tray_apps.len() as i32;
+    // Moving buttons are drawn last, and the held one last of all, so it passes over the others.
+    let fits = (((apps_x - TASK_BUTTONS_X) / TASK_W).max(0) as usize).min(key.items.len());
+    let mut order: Vec<usize> = (0..fits).collect();
+    order.sort_by_key(|&i| (key.items[i].held, key.items[i].dx != 0));
+    for &i in &order {
+        hits.push((rect(TASK_BUTTONS_X + i as i32 * TASK_W, 0, TASK_W, TASKBAR_H), TaskbarHit::Button(i)));
+    }
+    for i in order {
+        let item = &key.items[i];
+        let x = (TASK_BUTTONS_X + i as i32 * TASK_W + item.dx).clamp(TASK_BUTTONS_X, apps_x - TASK_W);
         let hit = TaskbarHit::Button(i);
         let bg = if item.focused { th().active } else if hovered(&hit) { th().hover } else { th().taskbar };
         c.rect(x, 0, TASK_W, TASKBAR_H, bg);
@@ -238,8 +252,6 @@ pub fn draw_taskbar(
             c.round_rect(bx, 5, bw, 15, 7, ACCENT);
             c.text(f, 10.0, bx + (bw - measure(f, 10.0, &n)) / 2, 5, 15, ON_ACCENT, &n);
         }
-        hits.push((rect(x, 0, TASK_W, TASKBAR_H), hit));
-        x += TASK_W;
     }
 
     // App tray icons (Discord, Steam, ...), left of our own.
@@ -266,6 +278,7 @@ pub fn draw_taskbar(
         (TaskbarHit::Volume, key.flyout == Some(Flyout::Volume)),
     ]
     .into_iter()
+    .take(tray_items as usize)
     .enumerate()
     {
         let bx = tray_x + i as i32 * TRAY_W;
@@ -301,30 +314,34 @@ pub fn draw_taskbar(
     // Action Center button: a speech bubble, lined when there are notifications, with a
     // count badge for ones that came in unseen.
     let nx = right_edge + CLOCK_W;
-    if key.action_center_open {
+    if key.secondary {
+        // Nothing between the clock and the show-desktop sliver.
+    } else if key.action_center_open {
         c.rect(nx, 0, NOTIFY_W, TASKBAR_H, th().active);
     } else if hovered(&TaskbarHit::ActionCenter) {
         c.rect(nx, 0, NOTIFY_W, TASKBAR_H, th().hover);
     }
-    let (any, unseen) = key.notifications;
-    let lines = if any { r##"<path d="M6 7.5h8M6 10.5h8" stroke="#fff" stroke-width="1.1"/>"## } else { "" };
-    crate::tray::glyph(
-        &mut c,
-        format!(r##"<path d="M2.5 3.5h15v10h-7l-4 3.5v-3.5h-4z" fill="none" stroke="#fff" stroke-width="1.15" stroke-linejoin="round"/>{lines}"##),
-        (nx + NOTIFY_W / 2) as f32,
-        (TASKBAR_H / 2) as f32,
-        20,
-    );
-    if unseen > 0 {
-        if let Some(f) = font {
-            let n = if unseen > 9 { "9+".to_string() } else { unseen.to_string() };
-            let tw = measure(f, 10.0, &n).max(8);
-            let (bx, by) = (nx + NOTIFY_W / 2 + 2, 7);
-            c.round_rect(bx, by, tw + 8, 15, 7, th().text);
-            c.text(f, 10.0, bx + 4 + (tw - measure(f, 10.0, &n)) / 2, by, 15, th().taskbar, &n);
+    if !key.secondary {
+        let (any, unseen) = key.notifications;
+        let lines = if any { r##"<path d="M6 7.5h8M6 10.5h8" stroke="#fff" stroke-width="1.1"/>"## } else { "" };
+        crate::tray::glyph(
+            &mut c,
+            format!(r##"<path d="M2.5 3.5h15v10h-7l-4 3.5v-3.5h-4z" fill="none" stroke="#fff" stroke-width="1.15" stroke-linejoin="round"/>{lines}"##),
+            (nx + NOTIFY_W / 2) as f32,
+            (TASKBAR_H / 2) as f32,
+            20,
+        );
+        if unseen > 0 {
+            if let Some(f) = font {
+                let n = if unseen > 9 { "9+".to_string() } else { unseen.to_string() };
+                let tw = measure(f, 10.0, &n).max(8);
+                let (bx, by) = (nx + NOTIFY_W / 2 + 2, 7);
+                c.round_rect(bx, by, tw + 8, 15, 7, th().text);
+                c.text(f, 10.0, bx + 4 + (tw - measure(f, 10.0, &n)) / 2, by, 15, th().taskbar, &n);
+            }
         }
+        hits.push((rect(nx, 0, NOTIFY_W, TASKBAR_H), TaskbarHit::ActionCenter));
     }
-    hits.push((rect(nx, 0, NOTIFY_W, TASKBAR_H), TaskbarHit::ActionCenter));
 
     // Show-desktop sliver at the far right.
     let dx = w - SHOW_DESKTOP_W;

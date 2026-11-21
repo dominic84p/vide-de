@@ -186,6 +186,8 @@ pub struct State {
     pub task_drag: Option<crate::pins::TaskDrag>,
     /// Taskbar buttons in the order they were dragged into; empty until the first drag.
     pub task_order: Vec<crate::pins::TaskKey>,
+    /// Taskbar buttons sliding to a new slot: how far away they started, and when.
+    pub task_slide: Vec<(crate::pins::TaskKey, f32, Instant)>,
     /// The taskbar was used over a fullscreen app, so it stays up after the menu or flyout
     /// that brought it closes, until the user goes back to the app (clicks or types in it).
     pub taskbar_peek: bool,
@@ -204,6 +206,9 @@ pub struct State {
     pub peek: crate::aero::Peek,
     /// After a snap: the other windows offered for the empty side (snapassist.rs).
     pub snap_assist: Option<crate::snapassist::Assist>,
+    /// The other monitors' taskbars (sidebars.rs), by monitor index, and what's hovered on them.
+    pub side_bars: Vec<Option<crate::ui::Taskbar>>,
+    pub side_hover: Option<(usize, TaskbarHit)>,
     pub start_drag: Option<crate::pins::StartDrag>,
     pub file_index: crate::search::FileIndex,
     pub menu: Option<crate::menu::Menu>,
@@ -374,6 +379,7 @@ impl State {
             pins: crate::pins::Pins::load(),
             task_drag: None,
             task_order: Vec::new(),
+            task_slide: Vec::new(),
             taskbar_peek: false,
             desktop_shown: None,
             snap: Default::default(),
@@ -382,6 +388,8 @@ impl State {
             shake: Default::default(),
             peek: Default::default(),
             snap_assist: None,
+            side_bars: Vec::new(),
+            side_hover: None,
             shortcuts: {
                 let mut s = crate::shortcuts::Shortcuts::default();
                 s.reload_if_changed();

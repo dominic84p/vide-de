@@ -243,6 +243,8 @@ enum Target {
     SnapLayout(Option<usize>),
     /// Over snap assist's side of the screen, maybe on a window.
     SnapAssist(Option<usize>),
+    /// Over another monitor's taskbar (by monitor index).
+    SideTaskbar(usize, TaskbarHit),
     Start(StartHit),
     Taskbar(TaskbarHit),
     Window(Hit),
@@ -925,8 +927,11 @@ impl State {
                 return Target::Start(hit);
             }
         }
+        if let Some((i, hit)) = self.side_bar_at(pos) {
+            return Target::SideTaskbar(i, hit);
+        }
         let bar_y = self.output_size.h - TASKBAR_H;
-        if self.taskbar_visible() && pos.y >= bar_y as f64 {
+        if self.taskbar_visible() && pos.y >= bar_y as f64 && pos.x < self.output_size.w as f64 {
             let local = Point::<i32, Logical>::from((pos.x as i32, pos.y as i32 - bar_y));
             let hit = self
                 .taskbar
@@ -1011,6 +1016,14 @@ impl State {
                 _ => None,
             };
             self.preview_track(button, matches!(target, Target::Preview(_)));
+            let side_hover = match &target {
+                Target::SideTaskbar(i, h) => Some((*i, h.clone())),
+                _ => None,
+            };
+            if self.side_hover != side_hover {
+                self.side_hover = side_hover;
+                self.needs_redraw = true;
+            }
             let assist_hover = match &target {
                 Target::SnapAssist(h) => *h,
                 _ => None,
@@ -1039,7 +1052,8 @@ impl State {
                 | Target::Toast(_)
                 | Target::Preview(_)
                 | Target::SnapLayout(_)
-                | Target::SnapAssist(_) => Hover::None,
+                | Target::SnapAssist(_)
+                | Target::SideTaskbar(..) => Hover::None,
                 Target::Start(h) => Hover::Start(h),
                 Target::Taskbar(h) => Hover::Taskbar(h),
                 Target::Window(Hit::Client(s, origin)) => {
@@ -1454,6 +1468,7 @@ impl State {
             | Target::Preview(_)
             | Target::SnapLayout(_)
             | Target::SnapAssist(_) => {}
+            Target::SideTaskbar(i, hit) => self.side_bar_click(i, hit, left, right, button == BTN_MIDDLE),
         }
     }
 

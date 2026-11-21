@@ -26,6 +26,7 @@ mod search;
 mod session;
 mod sni;
 mod shortcuts;
+mod sidebars;
 mod snapassist;
 mod snaplayout;
 mod switcher;

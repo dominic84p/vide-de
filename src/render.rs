@@ -435,7 +435,7 @@ pub fn elements_with(renderer: &mut GlesRenderer, state: &mut State, view: Recta
         if state.taskbar_shown() {
             let key = TaskbarKey {
                 width: ow,
-                items: state.taskbar_items(focused.as_ref()),
+                items: state.taskbar_items_animated(focused.as_ref()),
                 time: state.clock.0.clone(),
                 date: state.clock.1.clone(),
                 hover: match &state.hover {
@@ -452,6 +452,7 @@ pub fn elements_with(renderer: &mut GlesRenderer, state: &mut State, view: Recta
                 search_text: (state.start.open && state.start.searching()).then(|| state.start.query.clone()),
                 notifications: (!state.action_center.notifications.is_empty(), state.action_center.unseen),
                 action_center_open: state.action_center.open,
+                secondary: false,
             };
             if state.taskbar.as_ref().is_none_or(|t| t.key != key) {
                 let tray_icons = tray_icons(state);
@@ -519,6 +520,19 @@ pub fn elements_with(renderer: &mut GlesRenderer, state: &mut State, view: Recta
         let flyout_at = state.flyout_rect().loc;
         let now = state.flyout_picture().cloned().map(|b| (b, flyout_at));
         panel_fx(renderer, &v, &mut out, &mut state.anims.flyout, flyout_p, now, |e, _| Fx::slide(e, 0.0, 36.0 * (1.0 - e)));
+    });
+
+    // The other monitors' taskbars.
+    crate::supervisor::guard("side taskbars", || {
+        for (i, r) in state.side_bar_rects() {
+            if !r.overlaps(view) {
+                continue;
+            }
+            if let Some(bar) = state.side_bar(i) {
+                let buf = bar.buffer.clone();
+                out.extend(image(renderer, &v, &buf, r.loc, Kind::Unspecified));
+            }
+        }
     });
 
     // Top-layer clients (panels, docks) above windows.

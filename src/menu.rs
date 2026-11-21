@@ -169,7 +169,10 @@ impl State {
     /// A taskbar button's jump list, flush on the taskbar and centred on the button at `x`.
     pub fn open_jump_list(&mut self, x: i32, rows: Vec<(String, Action, Option<MenuIcon>)>) {
         let h = rows.len() as i32 * JUMP_ROW + JUMP_PAD * 2;
-        let pos = Point::from(((x - JUMP_W / 2).clamp(0, (self.output_size.w - JUMP_W).max(0)), self.output_size.h - TASKBAR_H - h));
+        // Over the taskbar it was opened from, on whichever monitor that is.
+        let m = self.monitor_at(self.pointer_loc);
+        let left = m.loc.x;
+        let pos = Point::from(((x - JUMP_W / 2).clamp(left, (left + m.size.w - JUMP_W).max(left)), m.loc.y + m.size.h - TASKBAR_H - h));
         let (items, icons): (Vec<_>, Vec<_>) = rows.into_iter().map(|(l, a, i)| ((l, a), i)).unzip();
         self.release_pointer();
         self.menu = Some(Menu { pos, items, hover: None, size: Size::from((JUMP_W, h)), picture: None, jump: Some(icons) });
@@ -199,10 +202,11 @@ impl State {
             .map(|f| items.iter().map(|(l, _)| measure(f, 13.0, &l.replace('\t', "      "))).max().unwrap_or(0))
             .unwrap_or(120);
         let size = Size::from(((text_w + 48).max(MIN_W), items.len() as i32 * ROW + PAD * 2));
-        let screen = self.output_size;
+        // Kept on the monitor it was opened on.
+        let m = self.monitor_at(at.to_f64());
         let pos = Point::from((
-            at.x.clamp(0, (screen.w - size.w).max(0)),
-            at.y.clamp(0, (screen.h - size.h).max(0)),
+            at.x.clamp(m.loc.x, (m.loc.x + m.size.w - size.w).max(m.loc.x)),
+            at.y.clamp(m.loc.y, (m.loc.y + m.size.h - size.h).max(m.loc.y)),
         ));
         self.release_pointer();
         self.menu = Some(Menu { pos, items, hover: None, size, picture: None, jump: None });
@@ -271,7 +275,8 @@ impl State {
 
     pub fn open_menu_above_taskbar(&mut self, x: i32, items: Vec<(String, Action)>) {
         let h = items.len() as i32 * ROW + PAD * 2;
-        self.open_menu((x - MIN_W / 2, self.output_size.h - TASKBAR_H - h).into(), items);
+        let m = self.monitor_at(self.pointer_loc);
+        self.open_menu((x - MIN_W / 2, m.loc.y + m.size.h - TASKBAR_H - h).into(), items);
     }
 
     /// A tray app sent us its menu: show it above the taskbar, under its icon.
@@ -366,7 +371,8 @@ impl State {
             ("Desktop".into(), Action::ShowDesktop),
         ];
         let h = items.len() as i32 * ROW + PAD * 2;
-        self.open_menu((0, self.output_size.h - TASKBAR_H - h).into(), items);
+        let m = self.monitor_at(self.pointer_loc);
+        self.open_menu((m.loc.x, m.loc.y + m.size.h - TASKBAR_H - h).into(), items);
     }
 
     pub fn open_desktop_menu(&mut self, at: Point<i32, Logical>) {

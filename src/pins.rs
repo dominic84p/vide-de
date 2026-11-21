@@ -15,6 +15,9 @@ use crate::{
     ui::{StartRow, TaskItem},
 };
 
+/// How long a taskbar button takes to slide into a new slot.
+const TASK_SLIDE: std::time::Duration = std::time::Duration::from_millis(170);
+
 pub struct Pins {
     pub start: Vec<String>,
     pub taskbar: Vec<String>,
@@ -221,6 +224,8 @@ impl State {
                 pinned: Some(id.clone()),
                 focused: mine.iter().any(|w| is_focused(w)),
                 key: TaskKey::App(id.clone()),
+                dx: 0,
+                held: false,
             });
         }
         for w in &windows {
@@ -261,6 +266,8 @@ impl State {
                 pinned: None,
                 focused: is_focused(w),
                 key,
+                dx: 0,
+                held: false,
             });
         }
         // Where buttons were dragged to; anything new (a window just opened) goes at the end.
@@ -271,9 +278,24 @@ impl State {
     /// Put a taskbar button at position `slot`, and keep the pinned list (which outlives the
     /// session) in the same order.
     pub fn place_task(&mut self, key: TaskKey, slot: usize) {
-        let mut order: Vec<TaskKey> = self.taskbar_items(None).into_iter().map(|i| i.key).collect();
+        let before: Vec<TaskKey> = self.taskbar_items(None).into_iter().map(|i| i.key).collect();
+        let mut order = before.clone();
         order.retain(|k| *k != key);
-        order.insert(slot.min(order.len()), key);
+        order.insert(slot.min(order.len()), key.clone());
+        // The buttons it passed slide over to their new slots instead of jumping there. The
+        // dragged one follows the pointer by itself (`taskbar_items_animated`).
+        if self.config.animations {
+            let now = std::time::Instant::now();
+            for (new_i, k) in order.iter().enumerate() {
+                let Some(old_i) = before.iter().position(|b| b == k) else { continue };
+                if old_i == new_i || *k == key {
+                    continue;
+                }
+                let still = self.task_slide_dx(k);
+                self.task_slide.retain(|(s, ..)| s != k);
+                self.task_slide.push((k.clone(), (old_i as f32 - new_i as f32) * crate::ui::TASK_W as f32 + still, now));
+            }
+        }
         let pinned: Vec<String> = order
             .iter()
             .filter_map(|k| match k {
@@ -303,7 +325,7 @@ impl State {
     pub fn press_task_button(&mut self, i: usize, x: f64) {
         // Any button can be dragged along the taskbar; a press that doesn't move is a click.
         if let Some(key) = self.taskbar.as_ref().and_then(|t| t.key.items.get(i)).map(|it| it.key.clone()) {
-            self.task_drag = Some(TaskDrag { key, start_x: x, moved: false, index: i });
+            self.task_drag = Some(TaskDrag { key, start_x: x, x, moved: false, index: i });
         }
     }
 
@@ -314,6 +336,8 @@ impl State {
             return;
         }
         d.moved = true;
+        d.x = x;
+        self.needs_redraw = true;
         let key = d.key.clone();
         let slot = ((x as i32 - crate::ui::TASK_BUTTONS_X) / crate::ui::TASK_W).max(0) as usize;
         let items = self.taskbar_items(None);
@@ -324,7 +348,14 @@ impl State {
     }
 
     pub fn task_drag_release(&mut self) {
-        let Some(d) = self.task_drag.take() else { return };
+        let Some(d) = self.task_drag.clone() else { return };
+        // Let go: the button glides from under the pointer into its slot.
+        if d.moved && self.config.animations {
+            let dx = self.taskbar_items(None).iter().position(|it| it.key == d.key).map(|i| self.drag_dx(&d, i)).unwrap_or(0);
+            self.task_slide.retain(|(s, ..)| *s != d.key);
+            self.task_slide.push((d.key.clone(), dx as f32, std::time::Instant::now()));
+        }
+        self.task_drag = None;
         if d.moved {
             self.pins.save();
         } else {
@@ -335,6 +366,11 @@ impl State {
     /// Not running: launch it. One window: focus or minimize it. Several: step through them.
     pub fn click_task_button(&mut self, i: usize) {
         let Some(item) = self.taskbar.as_ref().and_then(|t| t.key.items.get(i)).cloned() else { return };
+        self.click_task_item(item);
+    }
+
+    /// A taskbar button (on any monitor's taskbar) was clicked.
+    pub fn click_task_item(&mut self, item: TaskItem) {
         match item.windows.len() {
             0 => {
                 if let Some(app) = item.pinned.and_then(|id| self.apps.iter().find(|a| a.id == id).cloned()) {
@@ -360,6 +396,40 @@ impl State {
                 self.focus(Some(next), smithay::utils::SERIAL_COUNTER.next_serial());
             }
         }
+    }
+
+    /// The taskbar's buttons with where to draw them: the dragged one under the pointer, ones it
+    /// pushed aside still sliding into place.
+    pub fn taskbar_items_animated(&mut self, focused: Option<&WlSurface>) -> Vec<TaskItem> {
+        let mut items = self.taskbar_items(focused);
+        let drag = self.task_drag.clone().filter(|d| d.moved);
+        for (i, it) in items.iter_mut().enumerate() {
+            it.held = drag.as_ref().is_some_and(|d| d.key == it.key);
+            it.dx = match &drag {
+                Some(d) if it.held => self.drag_dx(d, i),
+                _ => self.task_slide_dx(&it.key).round() as i32,
+            };
+        }
+        self.task_slide.retain(|(_, _, t0)| t0.elapsed() < TASK_SLIDE);
+        if !self.task_slide.is_empty() {
+            self.needs_redraw = true;
+        }
+        items
+    }
+
+    /// Keeps the dragged button under the pointer, wherever its slot is now.
+    fn drag_dx(&self, d: &TaskDrag, slot: usize) -> i32 {
+        (d.x - d.start_x) as i32 - (slot as i32 - d.index as i32) * crate::ui::TASK_W
+    }
+
+    /// How far a sliding button still is from its slot.
+    fn task_slide_dx(&self, key: &TaskKey) -> f32 {
+        let Some((_, from, t0)) = self.task_slide.iter().find(|(k, ..)| k == key) else { return 0.0 };
+        let t = t0.elapsed().as_secs_f32() / TASK_SLIDE.as_secs_f32();
+        if t >= 1.0 {
+            return 0.0;
+        }
+        from * (1.0 - crate::anim::ease_out(t))
     }
 
     /// Middle click: another window of that app, as on Windoze and KDE.
@@ -492,9 +562,12 @@ pub enum TaskKey {
 }
 
 /// A taskbar button being held (maybe dragged).
+#[derive(Clone)]
 pub struct TaskDrag {
     pub key: TaskKey,
     pub start_x: f64,
+    /// Where the pointer is now.
+    pub x: f64,
     pub moved: bool,
     /// Its button index when pressed, for a plain click.
     pub index: usize,

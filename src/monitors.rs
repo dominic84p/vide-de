@@ -1,6 +1,6 @@
 //! Several monitors side by side. The primary one (the first found) sits at (0, 0) and
-//! carries the shell: taskbar, Start, flyouts, toasts, desktop icons, as on Windoze by
-//! default. The others line up to its right, so no window ever needs a negative position
+//! carries the shell: Start, flyouts, toasts, desktop icons, as on Windoze by default. The
+//! others get a taskbar of their own with their windows on it (sidebars.rs). The others line up to its right, so no window ever needs a negative position
 //! (X11 can't have one). Windows live on any of them and maximize, snap and go fullscreen
 //! on the one they're on.
 //!
@@ -83,6 +83,7 @@ impl State {
         }
         // Cached chrome was painted for the old size.
         self.taskbar = None;
+        self.side_bars.clear();
         self.start.menu = None;
         self.wallpapers.clear();
         self.needs_redraw = true;
@@ -93,9 +94,9 @@ impl State {
         self.monitors.iter().map(|m| m.geo).find(|g| g.to_f64().contains(p)).unwrap_or_else(|| self.output_rect())
     }
 
-    /// The part of `screen` windows may fill: all of it, except the taskbar on the primary.
+    /// The part of `screen` windows may fill: all of it but the taskbar, which every monitor has.
     pub fn work_area_on(&self, screen: Rectangle<i32, Logical>) -> Rectangle<i32, Logical> {
-        if screen.loc == Point::from((0, 0)) { Rectangle::from_size((screen.size.w, screen.size.h - crate::ui::TASKBAR_H).into()) } else { screen }
+        Rectangle::new(screen.loc, (screen.size.w, screen.size.h - crate::ui::TASKBAR_H).into())
     }
 
     /// The monitor a window is on (the one holding its centre), else the pointer's.
