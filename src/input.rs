@@ -323,50 +323,43 @@ impl State {
             }
 
             InputEvent::PointerAxis { event } => {
-                let over_volume = matches!(self.target(self.pointer_loc), Target::Taskbar(TaskbarHit::Volume))
-                    || (self.tray.flyout == Some(crate::tray::Flyout::Volume) && self.flyout_rect().to_f64().contains(self.pointer_loc));
-                if matches!(self.target(self.pointer_loc), Target::Taskbar(TaskbarHit::TaskView)) {
-                    let v = event.amount(Axis::Vertical).unwrap_or_else(|| event.amount_v120(Axis::Vertical).unwrap_or(0.0) / 8.0);
-                    if v > 0.0 {
-                        self.wm.next_workspace();
-                    } else if v < 0.0 {
-                        self.wm.prev_workspace();
-                    }
-                    self.focus_top();
-                    return;
-                }
-                if over_volume {
-                    let v = event.amount(Axis::Vertical).unwrap_or_else(|| event.amount_v120(Axis::Vertical).unwrap_or(0.0) / 8.0);
-                    if v != 0.0 {
-                        self.set_volume(self.tray.volume - v.signum() as f32 * 0.05);
-                    }
-                    return;
-                }
-                let over_brightness = matches!(self.target(self.pointer_loc), Target::Taskbar(TaskbarHit::Brightness))
-                    || (self.tray.flyout == Some(crate::tray::Flyout::Brightness) && self.flyout_rect().to_f64().contains(self.pointer_loc));
-                if over_brightness {
-                    let v = event.amount(Axis::Vertical).unwrap_or_else(|| event.amount_v120(Axis::Vertical).unwrap_or(0.0) / 8.0);
-                    if v != 0.0 {
-                        self.set_brightness(self.tray.brightness - v.signum() as f32 * 0.05);
-                    }
-                    return;
-                }
-                if matches!(self.tray.flyout, Some(crate::tray::Flyout::Network | crate::tray::Flyout::Calendar)) && self.flyout_rect().to_f64().contains(self.pointer_loc) {
-                    let v = event.amount(Axis::Vertical).unwrap_or_else(|| event.amount_v120(Axis::Vertical).unwrap_or(0.0) / 8.0);
-                    if v != 0.0 {
-                        self.flyout_scroll(v.signum() as i32);
-                    }
-                    return;
-                }
-                if self.start.open {
-                    if let Target::Start(_) = self.target(self.pointer_loc) {
-                        let v = event
-                            .amount(Axis::Vertical)
-                            .unwrap_or_else(|| event.amount_v120(Axis::Vertical).unwrap_or(0.0) / 8.0);
-                        self.scroll_menu(v.signum() as i32 * 3);
+                // Our own scroll targets step in notches. A touchpad sends a stream of small
+                // amounts with no wheel clicks; one swipe used to move volume 5% per event.
+                let (v120, amount) = (event.amount_v120(Axis::Vertical), event.amount(Axis::Vertical));
+                let target = self.target(self.pointer_loc);
+                let over_flyout = |s: &Self, f: &[crate::tray::Flyout]| {
+                    s.tray.flyout.is_some_and(|x| f.contains(&x)) && s.flyout_rect().to_f64().contains(s.pointer_loc)
+                };
+                use crate::tray::Flyout;
+                let ours = matches!(target, Target::Taskbar(TaskbarHit::TaskView | TaskbarHit::Volume | TaskbarHit::Brightness))
+                    || over_flyout(self, &[Flyout::Volume, Flyout::Brightness, Flyout::Network, Flyout::Calendar])
+                    || (self.start.open && matches!(target, Target::Start(_)));
+                if ours {
+                    let n = self.scroll_notches(v120, amount);
+                    if n == 0 {
                         return;
                     }
+                    if matches!(target, Target::Taskbar(TaskbarHit::TaskView)) {
+                        for _ in 0..n.abs() {
+                            if n > 0 {
+                                self.wm.next_workspace();
+                            } else {
+                                self.wm.prev_workspace();
+                            }
+                        }
+                        self.focus_top();
+                    } else if matches!(target, Target::Taskbar(TaskbarHit::Volume)) || over_flyout(self, &[Flyout::Volume]) {
+                        self.set_volume(self.tray.volume - n as f32 * 0.05);
+                    } else if matches!(target, Target::Taskbar(TaskbarHit::Brightness)) || over_flyout(self, &[Flyout::Brightness]) {
+                        self.set_brightness(self.tray.brightness - n as f32 * 0.05);
+                    } else if over_flyout(self, &[Flyout::Network, Flyout::Calendar]) {
+                        self.flyout_scroll(n.signum());
+                    } else {
+                        self.scroll_menu(n * 3);
+                    }
+                    return;
                 }
+                self.scroll_acc = 0.0;
                 let mut frame = AxisFrame::new(event.time_msec()).source(event.source());
                 for axis in [Axis::Horizontal, Axis::Vertical] {
                     let v120 = event.amount_v120(axis);
@@ -1404,6 +1397,20 @@ impl State {
             }
             Target::Menu(_) | Target::Desktops(_) | Target::ActionCenter(_) | Target::Toast(_) | Target::Preview(_) | Target::SnapLayout(_) => {}
         }
+    }
+
+    /// Whole scroll steps from a wheel (120 per click) or a touchpad (a step per 40 px swiped),
+    /// keeping the remainder for the next event.
+    fn scroll_notches(&mut self, v120: Option<f64>, amount: Option<f64>) -> i32 {
+        let (delta, per) = match (v120, amount) {
+            (Some(v), _) => (v, 120.0),
+            (None, Some(a)) => (a, 40.0),
+            _ => return 0,
+        };
+        self.scroll_acc += delta / per;
+        let n = self.scroll_acc.trunc();
+        self.scroll_acc -= n;
+        n as i32
     }
 
     pub fn power(&mut self, a: PowerAction) {

@@ -5,70 +5,63 @@ description: 'Complete keyboard shortcut list'
 
 # Keybindings Reference
 
+On a real TTY the modifier is **Super** (the Windoze key). Nested inside another desktop the
+host keeps Super, so it's **Alt** there: read `Super+X` as `Alt+X`.
+
 ## Window Management
 
 | Shortcut | Action |
 |----------|--------|
-| `Super+Q` | Close focused window |
-| `Super+M` | Toggle maximize |
+| `Super+Q` / `Alt+F4` | Close the focused window |
+| `Super+Up` | Maximize |
+| `Super+Down` | Minimize |
+| `Super+Left` / `Super+Right` | Snap to the left / right half |
 | `Super+F` | Toggle fullscreen |
-| `Super+H` | Minimize window |
-| `Super+Shift+Left` | Snap left |
-| `Super+Shift+Right` | Snap right |
-| `Super+Shift+Up` | Snap up |
-| `Super+Shift+Down` | Snap down |
-| `Super+Shift+M` | Toggle maximize (alternate) |
 | `Super+D` | Show desktop: minimize every window here; press again to bring them back |
 | Hover the maximize button | Snap layouts: a panel of layouts (halves, thirds, quarters...) drops below it; click a zone to snap the window there |
-| `Super+Shift+P` | Pin a window on top: opens a picker of this desktop's windows; click one (or arrows + `Enter`) to keep it above everything, fullscreen apps included. Pick a pinned one to unpin. `Esc` closes. Nested: `Alt+Shift+P` |
+| `Super+Shift+P` | Pin a window on top: opens a picker of this desktop's windows; click one (or arrows + `Enter`) to keep it above everything, fullscreen apps included. Pick a pinned one to unpin. `Esc` closes |
+| `Alt+Space` | The focused window's menu (TTY only; nested, Alt is the modifier) |
 
 ## Workspace (Virtual Desktops)
 
 | Shortcut | Action |
 |----------|--------|
-| `Super+1` .. `Super+0` | Switch to workspace 1-10 |
-| `Super+Shift+1` .. `Super+Shift+0` | Move window to workspace 1-10 |
-| `Super+Ctrl+Left` | Previous workspace |
-| `Super+Ctrl+Right` | Next workspace |
+| `Super+1` .. `Super+0` | Switch to desktop 1-10 |
+| `Super+Shift+1` .. `Super+Shift+0` | Move the focused window to desktop 1-10 |
+| `Super+Ctrl+Left` / `Super+Ctrl+Right` | Previous / next desktop |
 | `Super+Ctrl+F4` | Close this desktop: its windows move to the one before it |
-| `Super+Tab` | Open Task View |
+| `Super+Tab` | Task View (TTY; nested, `Alt+Tab` is the switcher) |
 
 ## Start Menu & Search
 
 | Shortcut | Action |
 |----------|--------|
-| `Super` | Toggle Start menu |
-| `Super+R` | Open Run command |
-| `Super+S` | Open search (in Start menu) |
-| `Escape` | Close Start menu / cancel |
-| `Enter` | Launch selected app |
-| `Arrow Up/Down` | Navigate results |
-| `Tab` | Switch between Pinned/All Apps |
+| `Super` (tap) / `Super+Space` | Open or close Start. Typing searches straight away |
+| `Up` / `Down` | Move through the results |
+| `Enter` | Open the highlighted result |
+| `Esc` | Close Start |
 
 ## System
 
 | Shortcut | Action |
 |----------|--------|
 | `Super+X` | Quick link menu over the Start button (also a right click on Start): Apps and Features, Power Options, System, Network Connections, PowerSlop, Task Mangler, Settings, File Exploder, sign out / restart / shut down, Desktop |
-| `Super+Enter` | Launch terminal (konsole) |
-| `Super+E` | Launch File Exploder |
-| `Super+V` | Clipboard history: the last 25 things you copied (text and images, screenshots included), newest first. Pick one with the mouse or arrows + `Enter` and it's pasted into the focused app. **Clear all** empties it. Password-manager copies are never kept. Nested: `Alt+V` |
-| `Super+.` / `Super+;` | Emoji Panic, the emoji panel: search or browse by category, click one (or `Enter` for the first match) and it's typed into the app you were in, through the clipboard. `Esc` closes. Nested: `Alt+.` |
-| `Super+Shift+Esc` | Launch Task Mangler |
-| `Super+Shift+S` | Region snip (screenshot) |
-| `PrtSc` | Fullscreen screenshot |
-| `Win+PrtSc` | Fullscreen screenshot (save) |
-| `Alt+PrtSc` | Active window screenshot |
-| `Super+L` | Lock screen (if configured) |
+| `Super+Enter` | Terminal (PowerSlop, else Konsole) |
+| `Super+E` | File Exploder |
+| `Super+A` / `Super+N` | Action Center |
+| `Super+V` | Clipboard history: the last 25 things you copied (text and images, screenshots included), newest first. Pick one with the mouse or arrows + `Enter` and it's pasted into the focused app. **Clear all** empties it. Password-manager copies are never kept |
+| `Super+.` / `Super+;` | Emoji Panic, the emoji panel: search or browse by category, click one (or `Enter` for the first match) and it's typed into the app you were in, through the clipboard. `Esc` closes |
+| `Ctrl+Shift+Esc` | Task Mangler |
+| `PrtSc` | Screenshot of the whole screen |
+| `Shift+PrtSc` / `Super+Shift+S` | Snip a region |
+| `Super+Shift+E` / `Ctrl+Alt+Backspace` | Sign out (quit the compositor) |
+| `Ctrl+Alt+F1` .. `F12` | Switch to another virtual terminal (TTY) |
 
 ## Focus & Navigation
 
 | Shortcut | Action |
 |----------|--------|
-| `Alt+Tab` | Next window (switcher) |
-| `Alt+Shift+Tab` | Previous window |
-| `Super+Tab` | Task View |
-| `Super+Shift+Tab` | Task View (reverse) |
+| `Alt+Tab` / `Alt+Shift+Tab` | Window switcher, forwards / backwards; let go of Alt to pick, `Esc` backs out |
 
 ## Media Keys
 
@@ -90,8 +83,10 @@ a vertical bar, fading out about 1.6 s after the last press.
 
 | Action | Binding |
 |--------|---------|
-| Move window | `Super+Left Drag` (titlebar or anywhere on SSD) |
-| Resize window | `Super+Right Drag` (edges) |
+| Move window | Drag the titlebar, or `Super+Left Drag` anywhere on the window |
+| Resize window | Drag an edge or corner |
+| Maximize / restore | Double-click the titlebar |
+| Switch desktop | `Scroll` over the Task View button |
 | Show window menu | `Right Click` (titlebar or taskbar button) |
 | New window of that app | `Middle Click` (taskbar button) |
 | Close a window | `Middle Click` (its taskbar preview) |

@@ -197,6 +197,8 @@ pub struct State {
     pub shortcuts: crate::shortcuts::Shortcuts,
     /// Saving the open apps, and bringing them back after the next login.
     pub session: crate::session::Session,
+    /// Scrolling over our own chrome: the part of a step not taken yet (see `scroll_notches`).
+    pub scroll_acc: f64,
     pub start_drag: Option<crate::pins::StartDrag>,
     pub file_index: crate::search::FileIndex,
     pub menu: Option<crate::menu::Menu>,
@@ -371,6 +373,7 @@ impl State {
             desktop_shown: None,
             snap: Default::default(),
             session: Default::default(),
+            scroll_acc: 0.0,
             shortcuts: {
                 let mut s = crate::shortcuts::Shortcuts::default();
                 s.reload_if_changed();
