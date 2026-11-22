@@ -487,6 +487,7 @@ pub fn elements_with(renderer: &mut GlesRenderer, state: &mut State, view: Recta
                 secondary: false,
                 theme_icons: system_icon_theme(state),
                 overflow_open: state.overflow.open.is_some(),
+                larp_logo: larp_logo_theme(state),
             };
             if state.taskbar.as_ref().is_none_or(|t| t.key != key) {
                 // The app tray icons now live in the overflow grid, but loading them also lends
@@ -711,6 +712,28 @@ pub fn elements_with(renderer: &mut GlesRenderer, state: &mut State, view: Recta
         state.needs_redraw = true;
     }
     out
+}
+
+/// Windows larp mode's logo source: the Windows 10 icon theme if it's installed (that's the
+/// look), else the chosen theme or Win11 if they carry a Windoze logo. A theme counts only if
+/// its logo is Windoze's: `distributor-logo-windows`, or `distributor-logo` in a theme named
+/// for Windows (Breeze's is a distro's). Looked up once per setting (this runs per frame).
+pub(crate) fn larp_logo_theme(state: &State) -> Option<String> {
+    if !state.config.windows_larp {
+        return None;
+    }
+    static MEMO: std::sync::Mutex<Option<(String, Option<String>)>> = std::sync::Mutex::new(None);
+    let mut memo = MEMO.lock().unwrap();
+    let chosen = state.config.icon_theme.clone();
+    if memo.as_ref().is_none_or(|(k, _)| *k != chosen) {
+        let windoze = |t: &str| {
+            vide_config::icons::find_own(t, "distributor-logo-windows", 20).is_some()
+                || (t.to_lowercase().starts_with("windows") && vide_config::icons::find_own(t, "distributor-logo", 20).is_some())
+        };
+        let pick = ["Windows-10", chosen.as_str(), "Win11"].into_iter().filter(|t| !t.is_empty()).find(|t| windoze(t)).map(String::from);
+        *memo = Some((chosen, pick));
+    }
+    memo.as_ref().and_then(|(_, p)| p.clone())
 }
 
 /// The icon theme the taskbar's system icons come from, if Settings says to use the chosen

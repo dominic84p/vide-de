@@ -128,6 +128,8 @@ pub struct TaskbarKey {
     pub theme_icons: Option<String>,
     /// The tray overflow is open (its chevron is lit).
     pub overflow_open: bool,
+    /// Windows larp mode: the icon theme whose Windoze logo goes on the Start button.
+    pub larp_logo: Option<String>,
 }
 
 pub struct Taskbar {
@@ -149,10 +151,12 @@ pub fn draw_taskbar(
     let hovered = |h: &TaskbarHit| key.hover.as_ref() == Some(h);
     c.fill(th().taskbar);
 
-    // Start button: our logo (a chevron if it somehow failed to load).
+    // Start button: our logo (a chevron if it somehow failed to load), or in Windows larp mode
+    // the Windoze logo from the icon theme that has one.
     let start_bg = if key.start_open { th().active } else if hovered(&TaskbarHit::Start) { th().hover } else { th().taskbar };
     c.rect(0, 0, START_W, TASKBAR_H, start_bg);
-    match logo {
+    let larp = key.larp_logo.as_deref().and_then(|t| icons.theme_logo(t, 20));
+    match larp.as_deref().or(logo) {
         Some(l) => c.icon(l, (START_W - l.w as i32) / 2, (TASKBAR_H - l.h as i32) / 2),
         None => {
             let mark = if key.start_open || hovered(&TaskbarHit::Start) { th().accent_light } else { th().text };

@@ -28,6 +28,13 @@ one-colour `-symbolic` versions first, and in its `-dark` variant on a dark task
 `Win11-dark`). Any the theme lacks, or that come out empty (SVGs wrapping a bitmap, which we
 can't draw), stay VIDE's.
 
+**Windows larp mode** (the last toggle on the page): the Start button shows the Windoze 10
+logo instead of VIDE's, at Windoze 10's own size (16px on a 40px taskbar). VIDE doesn't ship
+Microsoft's logo; it's taken from an installed Windoze icon theme, Windows 10 first, then the
+chosen theme or Win11, and only from `distributor-logo-windows` or a Windows theme's
+`distributor-logo`. Never `start-here`: these themes borrow it (Win11's is Apple's, Windows
+10's large one Mint's). With no such theme installed, the Start button keeps VIDE's logo.
+
 For a Windoze look, install an icon theme into `~/.local/share/icons` and pick it. Neither
 ships with VIDE-DE:
 

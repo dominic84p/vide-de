@@ -181,6 +181,25 @@ impl Icons {
         None
     }
 
+    /// The Windoze logo from theme `theme` itself, for Windows larp mode. Not `start-here`:
+    /// these themes borrow it from elsewhere (Win11's is Apple's, Windows-10's large one Mint's).
+    pub fn theme_logo(&mut self, theme: &str, size: u32) -> Option<Rc<Icon>> {
+        for name in ["distributor-logo-windows", "distributor-logo"] {
+            let key = (format!("{theme}:logo:{name}"), size);
+            if !self.cache.contains_key(&key) {
+                let icon = vide_config::icons::find_own(theme, name, size)
+                    .and_then(|p| load(&p, size))
+                    .filter(|i| i.rgba.chunks(4).any(|px| px[3] > 0))
+                    .map(Rc::new);
+                self.cache.insert(key.clone(), icon);
+            }
+            if let Some(Some(icon)) = self.cache.get(&key) {
+                return Some(icon.clone());
+            }
+        }
+        None
+    }
+
     fn find_custom(&self, name: &str) -> Option<&Icon> {
         if let Some(i) = self.custom.get(name) {
             return Some(i);

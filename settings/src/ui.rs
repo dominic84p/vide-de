@@ -1272,18 +1272,23 @@ impl Settings {
             }
             ui.add_space(6.0);
         }
-        ui.add_space(4.0);
+        ui.label(
+            RichText::new("New themes go in ~/.local/share/icons. Apps that are already open pick up a change when they're opened again.")
+                .color(DIM)
+                .size(12.0),
+        );
+        ui.add_space(10.0);
         changed |= setting_block(
             ui,
             "Use the selected theme's system icons instead of VIDE's",
             "Wi-Fi, volume, brightness and the Action Center button on the taskbar. Ones the theme doesn't have stay VIDE's.",
             |ui| doze_toggle(ui, &mut self.config.theme_system_icons),
         );
-        ui.add_space(8.0);
-        ui.label(
-            RichText::new("New themes go in ~/.local/share/icons. Apps that are already open pick up a change when they're opened again.")
-                .color(DIM)
-                .size(12.0),
+        changed |= setting_block(
+            ui,
+            "Windows larp mode",
+            "Puts the Windoze 10 logo on the Start button instead of VIDE's. It comes from an installed Windoze icon theme (Windows 10 or Win11); VIDE doesn't ship Microsoft's logo.",
+            |ui| doze_toggle(ui, &mut self.config.windows_larp),
         );
         changed
     }

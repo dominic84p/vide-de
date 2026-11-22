@@ -71,6 +71,7 @@ impl State {
             secondary: true,
             theme_icons: None,
             overflow_open: false,
+            larp_logo: crate::render::larp_logo_theme(self),
         };
         while self.side_bars.len() <= i {
             self.side_bars.push(None);
