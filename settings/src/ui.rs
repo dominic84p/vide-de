@@ -1248,9 +1248,13 @@ impl Settings {
                     ui.horizontal(|ui| {
                         ui.add_space(26.0);
                         for icon in SAMPLE {
-                            match vide_config::icons::find_in(preview, icon, 32) {
+                            // One the theme lacks is drawn from the fallback, faded, so the gap shows.
+                            let own = vide_config::icons::find_in(preview, icon, 32);
+                            let found = own.clone().or_else(|| ["breeze", "vide"].iter().find_map(|t| vide_config::icons::find_in(t, icon, 32)));
+                            match found {
                                 Some(p) => {
-                                    ui.add(egui::Image::new(format!("file://{}", p.display())).fit_to_exact_size(Vec2::splat(32.0)));
+                                    let tint = if own.is_some() { Color32::WHITE } else { Color32::WHITE.gamma_multiply(0.35) };
+                                    ui.add(egui::Image::new(format!("file://{}", p.display())).fit_to_exact_size(Vec2::splat(32.0)).tint(tint));
                                 }
                                 None => {
                                     ui.add_space(32.0);

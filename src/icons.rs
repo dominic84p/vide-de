@@ -55,7 +55,8 @@ impl Icons {
                 themes.push(t);
             }
         }
-        for t in ["breeze", "breeze-dark", "Adwaita", "hicolor"] {
+        // Then Breeze, then our own pack, so whatever the chosen theme lacks is still drawn.
+        for t in ["breeze", "breeze-dark", "vide", "Adwaita", "hicolor"] {
             if !themes.iter().any(|x| x == t) {
                 themes.push(t.into());
             }

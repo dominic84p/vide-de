@@ -145,8 +145,26 @@ pub fn set_theme(id: &str) {
     *CHOSEN.lock().unwrap() = Some(id.to_string());
 }
 
-/// `name` in the icon theme chosen in Settings, if one is chosen and has it. Looked up once
-/// per theme, name and size.
+/// The desktop's own icon theme: KDE's choice (kdeglobals), else Breeze.
+pub fn system_theme() -> String {
+    let home = std::env::var("HOME").unwrap_or_default();
+    let rc = std::fs::read_to_string(format!("{home}/.config/kdeglobals")).unwrap_or_default();
+    let mut in_icons = false;
+    for line in rc.lines() {
+        if line.starts_with('[') {
+            in_icons = line == "[Icons]";
+        } else if let (true, Some(t)) = (in_icons, line.strip_prefix("Theme=")) {
+            if !t.trim().is_empty() {
+                return t.trim().to_string();
+            }
+        }
+    }
+    "breeze".into()
+}
+
+/// `name` in the icon theme chosen in Settings, if one is chosen. Whatever that theme (and what
+/// it inherits) lacks is filled in from the system's theme, then from our own `vide` pack, so
+/// a theme with gaps never leaves a blank. Looked up once per theme, name and size.
 pub fn themed_icon(name: &str, size: u32) -> Option<PathBuf> {
     static CACHE: OnceLock<Mutex<HashMap<(String, String, u32), Option<PathBuf>>>> = OnceLock::new();
     let chosen = CHOSEN.lock().unwrap().get_or_insert_with(|| crate::Config::load().icon_theme).clone();
@@ -154,7 +172,13 @@ pub fn themed_icon(name: &str, size: u32) -> Option<PathBuf> {
         return None;
     }
     let mut cache = CACHE.get_or_init(Default::default).lock().unwrap();
-    cache.entry((chosen.clone(), name.to_string(), size)).or_insert_with(|| find_in(&chosen, name, size)).clone()
+    cache
+        .entry((chosen.clone(), name.to_string(), size))
+        .or_insert_with(|| {
+            let system = system_theme();
+            [chosen.as_str(), system.as_str(), "breeze", "vide"].iter().find_map(|t| find_in(t, name, size))
+        })
+        .clone()
 }
 
 #[cfg(test)]

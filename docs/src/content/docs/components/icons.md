@@ -16,12 +16,19 @@ and "System default" (KDE's theme, else Breeze). The choice is `icon_theme` in s
 - The compositor (taskbar, Start, titlebars, tray) and vide-desktop switch at once; File
   Exploder, Task Mangler and Snip & Sketchy use it next time they open.
 - Every program asks `vide_config::themed_icon` first, which reads the theme's `index.theme`
-  (its folders, their sizes, what it inherits), and falls back to its own lookup for anything
-  the theme lacks. Apps that aren't ours follow KDE's or GTK's icon settings, not this one.
+  (its folders, their sizes, what it inherits). Whatever the theme lacks is filled in from the
+  system's theme (KDE's, else Breeze), then from our own `vide` pack, so a theme with gaps
+  never leaves a blank. The Themes page shows a filled-in icon faded, so you can see what a
+  theme is missing. Apps that aren't ours follow KDE's or GTK's icon settings, not this one.
 
-To get a Windoze 11 look, install a theme such as
-[Win11-icon-theme](https://github.com/yeyushengfan258/Win11-icon-theme) (GPL-3, so it's
-installed separately, not shipped with VIDE-DE) into `~/.local/share/icons` and pick it.
+For a Windoze look, install an icon theme into `~/.local/share/icons` and pick it. Neither
+ships with VIDE-DE:
+
+- **Windows 10** ([B00merang-Artwork/Windows-10](https://github.com/B00merang-Artwork/Windows-10)):
+  the classic Windoze 10 (LTSC) set. A plain theme folder; clone it into
+  `~/.local/share/icons/Windows-10`. It covers most of what we use; the rest is filled in.
+- **Win11** ([yeyushengfan258/Win11-icon-theme](https://github.com/yeyushengfan258/Win11-icon-theme)):
+  GPL-3; install with its `install.sh`.
 
 ## The `vide` theme
 
