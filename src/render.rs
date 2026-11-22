@@ -425,6 +425,13 @@ pub fn elements_with(renderer: &mut GlesRenderer, state: &mut State, view: Recta
         });
     });
 
+    // The tray overflow grid, above its chevron.
+    crate::supervisor::guard("tray overflow", || {
+        if let Some((buf, at)) = state.overflow_picture() {
+            out.extend(image(renderer, &v, &buf, at, Kind::Unspecified));
+        }
+    });
+
     // Snap assist: live thumbnails over its picture, on the empty side of the screen.
     crate::supervisor::guard("snap assist", || {
         if let Some((buf, at, thumbs)) = state.snap_assist_picture() {
@@ -479,10 +486,13 @@ pub fn elements_with(renderer: &mut GlesRenderer, state: &mut State, view: Recta
                 action_center_open: state.action_center.open,
                 secondary: false,
                 theme_icons: system_icon_theme(state),
+                overflow_open: state.overflow.open.is_some(),
             };
             if state.taskbar.as_ref().is_none_or(|t| t.key != key) {
-                let tray_icons = tray_icons(state);
-                state.taskbar = Some(ui::draw_taskbar(state.font.as_ref(), &mut state.icons, state.logo.as_ref(), &tray_icons, key));
+                // The app tray icons now live in the overflow grid, but loading them also lends
+                // them to windows without an icon of their own, so keep them fresh here.
+                tray_icons(state);
+                state.taskbar = Some(ui::draw_taskbar(state.font.as_ref(), &mut state.icons, state.logo.as_ref(), key));
             }
             // Buttons on the move: each its own picture, placed where it is this frame, so the GPU
             // slides them and the taskbar picture stays as it is. The held one goes in front.
@@ -728,7 +738,7 @@ fn system_icon_theme(state: &State) -> Option<String> {
 
 const TRAY_ICON: u32 = 20;
 
-fn tray_fingerprint(i: &crate::sni::TrayItem) -> String {
+pub(crate) fn tray_fingerprint(i: &crate::sni::TrayItem) -> String {
     match &i.pixmap {
         // Cheap content hash: size plus a sparse sample of the pixels.
         Some((w, h, px)) => {
@@ -740,7 +750,7 @@ fn tray_fingerprint(i: &crate::sni::TrayItem) -> String {
 }
 
 /// Load each app tray icon: from the app's own icon folder, the theme, or its raw pixels.
-fn tray_icons(state: &mut State) -> Vec<Option<std::rc::Rc<crate::icons::Icon>>> {
+pub(crate) fn tray_icons(state: &mut State) -> Vec<Option<std::rc::Rc<crate::icons::Icon>>> {
     let mut out = Vec::new();
     for item in &state.sni_items {
         let fp = tray_fingerprint(item);

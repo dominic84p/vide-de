@@ -41,8 +41,11 @@ pub const TASK_W: i32 = 48;
 pub const TASK_BUTTONS_X: i32 = SEARCH_END + TASK_W + 4;
 const CLOCK_W: i32 = 88;
 const NOTIFY_W: i32 = 40;
-const TRAY_W: i32 = 34;
-const SHOW_DESKTOP_W: i32 = 6;
+/// Windoze 10's tray grid: 24px a button.
+const TRAY_W: i32 = 24;
+const SHOW_DESKTOP_W: i32 = 5;
+/// Windoze 10's edges on a dark taskbar: the search box outline, the show-desktop divider.
+const EDGE: Rgba = hex(0x4d4d4d);
 pub const MENU_W: i32 = 680;
 const MENU_ROW: i32 = 36;
 const MENU_TOP: i32 = 8;
@@ -66,6 +69,8 @@ pub enum TaskbarHit {
     ActionCenter,
     /// An app's tray icon, by its tray id.
     TrayApp(String),
+    /// The ^ chevron that opens the tray overflow (apps' tray icons).
+    Overflow,
     /// A taskbar button, by index into `TaskbarKey::items`.
     Button(usize),
     TaskView,
@@ -121,6 +126,8 @@ pub struct TaskbarKey {
     /// Draw the tray's and Action Center's icons from this icon theme where it has them
     /// (Settings' "use the selected theme's system icons"), instead of our glyphs.
     pub theme_icons: Option<String>,
+    /// The tray overflow is open (its chevron is lit).
+    pub overflow_open: bool,
 }
 
 pub struct Taskbar {
@@ -134,7 +141,6 @@ pub fn draw_taskbar(
     font: Option<&Font>,
     icons: &mut Icons,
     logo: Option<&crate::icons::Icon>,
-    tray_icons: &[Option<std::rc::Rc<crate::icons::Icon>>],
     key: TaskbarKey,
 ) -> Taskbar {
     let w = key.width;
@@ -173,10 +179,9 @@ pub fn draw_taskbar(
         }
         None => {
             c.rect(sx, 0, SEARCH_W, TASKBAR_H, if hovered(&TaskbarHit::Search) { th().search_hover } else { th().search_bg });
-            // White on a light taskbar needs an edge to read as a box.
-            if crate::theme::light() {
-                c.outline(sx, 0, SEARCH_W, TASKBAR_H, th().divider);
-            }
+            // Windoze 10's box has a 1px edge: grey on a dark taskbar, and white on a light one
+            // needs it to read as a box at all.
+            c.outline(sx, 0, SEARCH_W, TASKBAR_H, if crate::theme::light() { th().divider } else { EDGE });
             magnifier(&mut c, sx as f32 + 22.0, TASKBAR_H as f32 / 2.0, th().text, th().search_bg);
             if let Some(f) = font {
                 c.text(f, 13.0, sx + 42, 0, TASKBAR_H, th().text_dim, "Type here to search");
@@ -197,12 +202,6 @@ pub fn draw_taskbar(
         cy as f32,
         20,
     );
-    if let Some(f) = font {
-        let n = (key.current_workspace + 1).to_string();
-        let tw = measure(f, 10.0, &n);
-        c.round_rect(cx + 5, cy + 3, tw + 6, 12, 3, ACCENT);
-        c.text(f, 10.0, cx + 8, cy + 3, 12, ON_ACCENT, &n);
-    }
     if key.taskview_open {
         c.rect(tv_x, TASKBAR_H - 2, TASK_W, 2, th().accent_light);
     }
@@ -212,7 +211,9 @@ pub fn draw_taskbar(
     let notify_w = if key.secondary { 0 } else { NOTIFY_W };
     let right_edge = w - CLOCK_W - notify_w - SHOW_DESKTOP_W;
     let tray_items = if key.secondary { 0 } else { 3 };
-    let apps_x = right_edge - TRAY_W * tray_items - TRAY_W * key.tray_apps.len() as i32;
+    // Apps' tray icons hide behind one chevron, as on Windoze 10.
+    let chevron = !key.secondary && !key.tray_apps.is_empty();
+    let apps_x = right_edge - TRAY_W * tray_items - if chevron { TRAY_W } else { 0 };
     // A button that's sliding (or held) isn't painted here: it's its own picture, moved by the
     // GPU every frame (`draw_task_button`), and its slot shows bare taskbar meanwhile.
     let fits = (((apps_x - TASK_BUTTONS_X) / TASK_W).max(0) as usize).min(key.items.len());
@@ -225,20 +226,20 @@ pub fn draw_taskbar(
         hits.push((rect(x, 0, TASK_W, TASKBAR_H), hit));
     }
 
-    // App tray icons (Discord, Steam, ...), left of our own.
-    for (i, (id, _)) in key.tray_apps.iter().enumerate() {
-        let bx = apps_x + i as i32 * TRAY_W;
-        let hit = TaskbarHit::TrayApp(id.clone());
-        if hovered(&hit) {
-            c.rect(bx, 0, TRAY_W, TASKBAR_H, th().hover);
+    // The overflow chevron, left of our own icons: apps' tray icons are in the grid it opens.
+    if chevron {
+        let hit = TaskbarHit::Overflow;
+        if key.overflow_open {
+            c.rect(apps_x, 0, TRAY_W, TASKBAR_H, th().active);
+        } else if hovered(&hit) {
+            c.rect(apps_x, 0, TRAY_W, TASKBAR_H, th().hover);
         }
-        match tray_icons.get(i).and_then(|o| o.as_ref()) {
-            Some(icon) => c.icon(icon, bx + (TRAY_W - icon.w as i32) / 2, (TASKBAR_H - icon.h as i32) / 2),
-            None => c.round_rect(bx + 9, 12, 16, 16, 3, ACCENT),
-        }
-        hits.push((rect(bx, 0, TRAY_W, TASKBAR_H), hit));
+        let (cx, cy) = (apps_x as f32 + TRAY_W as f32 / 2.0, TASKBAR_H as f32 / 2.0);
+        c.line(cx - 4.5, cy + 2.0, cx, cy - 2.5, 1.2, th().text);
+        c.line(cx, cy - 2.5, cx + 4.5, cy + 2.0, 1.2, th().text);
+        hits.push((rect(apps_x, 0, TRAY_W, TASKBAR_H), hit));
     }
-    let tray_x = apps_x + TRAY_W * key.tray_apps.len() as i32;
+    let tray_x = apps_x + if chevron { TRAY_W } else { 0 };
 
     // Tray: network, brightness, volume, just left of the clock. Bluetooth lives in
     // the Action Center's quick actions, as in Windoze 10.
@@ -319,9 +320,9 @@ pub fn draw_taskbar(
         hits.push((rect(nx, 0, NOTIFY_W, TASKBAR_H), TaskbarHit::ActionCenter));
     }
 
-    // Show-desktop sliver at the far right.
+    // Show-desktop sliver at the far right, behind a 1px divider.
     let dx = w - SHOW_DESKTOP_W;
-    c.rect(dx, 0, 1, TASKBAR_H, th().divider);
+    c.rect(dx, 0, 1, TASKBAR_H, if crate::theme::light() { th().divider } else { EDGE });
     if hovered(&TaskbarHit::ShowDesktop) {
         c.rect(dx + 1, 0, SHOW_DESKTOP_W - 1, TASKBAR_H, th().hover);
     }
@@ -359,17 +360,13 @@ fn paint_task_button(c: &mut Canvas, font: Option<&Font>, icons: &mut Icons, ite
     } else if !item.windows.is_empty() {
         c.rect(x + 6, TASKBAR_H - 2, TASK_W - 12, 2, th().accent_light);
     }
-    // Several windows: a second, offset line, like Windoze' stacked-button edge.
-    if item.windows.len() > 1 {
-        c.rect(x + TASK_W - 3, 4, 1, TASKBAR_H - 8, th().divider);
-    }
-    // A group of several: how many, as KDE shows it, since one button now stands for them all.
-    if let (true, Some(f)) = (item.windows.len() > 1, font) {
-        let n = if item.windows.len() > 99 { "99+".to_string() } else { item.windows.len().to_string() };
-        let bw = (measure(f, 10.0, &n) + 6).max(15);
-        let bx = x + TASK_W - bw - 4;
-        c.round_rect(bx, 5, bw, 15, 7, ACCENT);
-        c.text(f, 10.0, bx + (bw - measure(f, 10.0, &n)) / 2, 5, 15, ON_ACCENT, &n);
+    // Several windows: Windoze 10's stacked cards, the button's edge repeated to its right,
+    // once for two windows and twice for three or more. No count: the stack says it.
+    let stacked = item.windows.len().saturating_sub(1).min(2) as i32;
+    for k in 0..stacked {
+        let ex = x + TASK_W - 2 - k * 3;
+        c.rect(ex, 3, 2, TASKBAR_H - 6, if item.focused || hovered { th().hover } else { th().active });
+        c.rect(ex - 1, 3, 1, TASKBAR_H - 6, th().taskbar);
     }
 }
 

@@ -42,3 +42,11 @@ hides while a tray flyout is open, since the flyout already shows the level.
 - `media.rs`: what's playing (MPRIS), for the volume flyout
 - `sni.rs`: app tray icons
 - `input.rs`: media keys, flyout clicks and scrolling
+
+## Overflow
+
+Apps' own tray icons (Discord, Steam, nm-applet...) sit behind a ^ chevron left of ours, as on
+Windoze 10, instead of on the taskbar. Click it for a grid of them: click an icon to open its
+app, right-click for its menu; a click elsewhere or Esc closes the grid. Our own icons (network,
+brightness, volume) stay on the taskbar on a 24px grid. See `overflow.rs`.
+

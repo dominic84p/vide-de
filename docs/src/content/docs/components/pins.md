@@ -111,7 +111,8 @@ fn on_pin_click(&mut self, pin: &PinEntry, button: MouseButton) {
 ## Grouping
 
 Every app gets one taskbar button, however many windows it has open, like Windoze 10 and KDE:
-37 Firefox windows are one Firefox button with a **37** badge in its corner. Windows group by
+37 Firefox windows are one Firefox button, drawn as a stack of cards (its edge repeated on the
+right, as on Windoze 10) rather than with a count. Windows group by
 their desktop entry, else by app id, else (Wayland only) by the program behind them. Clicking a
 group steps through its windows; hovering it shows them all (see below). **Middle-click** a
 button to open another window of that app.

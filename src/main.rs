@@ -19,6 +19,7 @@ mod menu;
 mod monitors;
 mod notifications;
 mod osd;
+mod overflow;
 mod preview;
 mod pins;
 mod remote;

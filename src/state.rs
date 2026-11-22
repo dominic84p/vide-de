@@ -215,6 +215,8 @@ pub struct State {
     pub remote: Option<crate::remote::Remote>,
     /// The border shown round each monitor meanwhile.
     pub remote_border: Vec<smithay::backend::renderer::element::solid::SolidColorBuffer>,
+    /// The tray overflow grid behind the ^ chevron (overflow.rs).
+    pub overflow: crate::overflow::Overflow,
     pub start_drag: Option<crate::pins::StartDrag>,
     pub file_index: crate::search::FileIndex,
     pub menu: Option<crate::menu::Menu>,
@@ -399,6 +401,7 @@ impl State {
             side_hover: None,
             remote: None,
             remote_border: Vec::new(),
+            overflow: Default::default(),
             shortcuts: {
                 let mut s = crate::shortcuts::Shortcuts::default();
                 s.reload_if_changed();

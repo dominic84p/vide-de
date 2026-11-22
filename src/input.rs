@@ -66,6 +66,7 @@ enum Action {
     /// A command from shortcuts.conf.
     Custom(String),
     CloseSnapAssist,
+    CloseOverflow,
     /// Win+X: the power-user menu over the Start button.
     QuickLink,
     /// Win+D: minimize everything, or bring it back.
@@ -245,6 +246,8 @@ enum Target {
     SnapAssist(Option<usize>),
     /// Over another monitor's taskbar (by monitor index).
     SideTaskbar(usize, TaskbarHit),
+    /// Over the tray overflow grid, maybe on an app's icon (by index into `sni_items`).
+    Overflow(Option<usize>),
     Start(StartHit),
     Taskbar(TaskbarHit),
     Window(Hit),
@@ -465,6 +468,9 @@ impl State {
             if state.desktops.open && pressed && modified == Keysym::Escape {
                 return FilterResult::Intercept(Action::CloseDesktops);
             }
+            if state.overflow.open.is_some() && pressed && modified == Keysym::Escape {
+                return FilterResult::Intercept(Action::CloseOverflow);
+            }
             if state.snap_assist.is_some() && pressed && modified == Keysym::Escape {
                 return FilterResult::Intercept(Action::CloseSnapAssist);
             }
@@ -519,6 +525,7 @@ impl State {
             Action::TaskView => self.toggle_desktops(),
             Action::Custom(cmd) => self.spawn(&cmd),
             Action::CloseSnapAssist => self.snap_assist_close(),
+            Action::CloseOverflow => self.overflow_close(),
             Action::QuickLink => self.open_quick_link_menu(),
             Action::ShowDesktop => self.show_desktop(),
             Action::CloseDesktop => {
@@ -885,6 +892,9 @@ impl State {
         if let Some(tile) = self.snap_assist_at(pos) {
             return Target::SnapAssist(tile);
         }
+        if let Some(i) = self.overflow_at(pos) {
+            return Target::Overflow(i);
+        }
         if let Some(hit) = self.toast_at(pos) {
             return Target::Toast(hit);
         }
@@ -1016,6 +1026,14 @@ impl State {
                 _ => None,
             };
             self.preview_track(button, matches!(target, Target::Preview(_)));
+            let over = match &target {
+                Target::Overflow(i) => *i,
+                _ => None,
+            };
+            if self.overflow.hover != over {
+                self.overflow.hover = over;
+                self.needs_redraw = true;
+            }
             let side_hover = match &target {
                 Target::SideTaskbar(i, h) => Some((*i, h.clone())),
                 _ => None,
@@ -1053,7 +1071,8 @@ impl State {
                 | Target::Preview(_)
                 | Target::SnapLayout(_)
                 | Target::SnapAssist(_)
-                | Target::SideTaskbar(..) => Hover::None,
+                | Target::SideTaskbar(..)
+                | Target::Overflow(_) => Hover::None,
                 Target::Start(h) => Hover::Start(h),
                 Target::Taskbar(h) => Hover::Taskbar(h),
                 Target::Window(Hit::Client(s, origin)) => {
@@ -1199,6 +1218,19 @@ impl State {
                 Target::Toast(_) => {}
                 _ => self.taskbar_peek = true,
             }
+        }
+
+        // The tray overflow: an app's icon opens it (or its menu); any other click closes the grid,
+        // except the chevron's own, which toggles it below.
+        if let Target::Overflow(i) = target {
+            if let Some(id) = i.and_then(|i| self.sni_items.get(i)).map(|it| it.id.clone()) {
+                self.overflow_close();
+                self.tray_app_click(id, pos, right);
+            }
+            return;
+        }
+        if !matches!(target, Target::Taskbar(TaskbarHit::Overflow)) {
+            self.overflow_close();
         }
 
         // Snap assist: a window fills the empty side; any other click leaves it empty.
@@ -1370,14 +1402,10 @@ impl State {
                             self.toggle_flyout(crate::tray::Flyout::Calendar);
                         }
                         TaskbarHit::ActionCenter => self.toggle_action_center(),
-                        TaskbarHit::TrayApp(id) => {
-                            self.tray_menu_x = pos.x as i32;
-                            if let Some(surface) = self.window_for_tray(&id) {
-                                self.focus(Some(surface), SERIAL_COUNTER.next_serial());
-                            }
-                            if let Some(tx) = &self.sni_tx {
-                                let _ = tx.send(crate::sni::Cmd::Activate { id, x: pos.x as i32, y: pos.y as i32 });
-                            }
+                        TaskbarHit::TrayApp(id) => self.tray_app_click(id, pos, false),
+                        TaskbarHit::Overflow => {
+                            let x = pos.x as i32;
+                            self.overflow_toggle(x);
                         }
                         TaskbarHit::Nothing => {}
                     }
@@ -1385,12 +1413,7 @@ impl State {
                     match hit {
                         TaskbarHit::Start => self.open_quick_link_menu(),
                         TaskbarHit::Button(i) => self.open_task_button_menu(i, pos.x as i32),
-                        TaskbarHit::TrayApp(id) => {
-                            self.tray_menu_x = pos.x as i32;
-                            if let Some(tx) = &self.sni_tx {
-                                let _ = tx.send(crate::sni::Cmd::OpenMenu { id, x: pos.x as i32, y: pos.y as i32 });
-                            }
-                        }
+                        TaskbarHit::TrayApp(id) => self.tray_app_click(id, pos, true),
                         _ => {}
                     }
                 } else if button == BTN_MIDDLE {
@@ -1467,7 +1490,8 @@ impl State {
             | Target::Toast(_)
             | Target::Preview(_)
             | Target::SnapLayout(_)
-            | Target::SnapAssist(_) => {}
+            | Target::SnapAssist(_)
+            | Target::Overflow(_) => {}
             Target::SideTaskbar(i, hit) => self.side_bar_click(i, hit, left, right, button == BTN_MIDDLE),
         }
     }
@@ -1484,6 +1508,25 @@ impl State {
         let n = self.scroll_acc.trunc();
         self.scroll_acc -= n;
         n as i32
+    }
+
+    /// An app's tray icon clicked (on the taskbar or in the overflow): open the app, or with
+    /// `menu` its own menu.
+    fn tray_app_click(&mut self, id: String, pos: Point<f64, Logical>, menu: bool) {
+        self.tray_menu_x = pos.x as i32;
+        let (x, y) = (pos.x as i32, pos.y as i32);
+        if menu {
+            if let Some(tx) = &self.sni_tx {
+                let _ = tx.send(crate::sni::Cmd::OpenMenu { id, x, y });
+            }
+            return;
+        }
+        if let Some(surface) = self.window_for_tray(&id) {
+            self.focus(Some(surface), SERIAL_COUNTER.next_serial());
+        }
+        if let Some(tx) = &self.sni_tx {
+            let _ = tx.send(crate::sni::Cmd::Activate { id, x, y });
+        }
     }
 
     pub fn power(&mut self, a: PowerAction) {

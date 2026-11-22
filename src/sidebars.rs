@@ -70,12 +70,13 @@ impl State {
             action_center_open: false,
             secondary: true,
             theme_icons: None,
+            overflow_open: false,
         };
         while self.side_bars.len() <= i {
             self.side_bars.push(None);
         }
         if self.side_bars[i].as_ref().is_none_or(|t| t.key != key) {
-            let bar = ui::draw_taskbar(self.font.as_ref(), &mut self.icons, self.logo.as_ref(), &[], key);
+            let bar = ui::draw_taskbar(self.font.as_ref(), &mut self.icons, self.logo.as_ref(), key);
             self.side_bars[i] = Some(bar);
         }
         self.side_bars[i].as_ref()
