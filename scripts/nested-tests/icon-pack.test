@@ -1,0 +1,15 @@
+# The `vide` icon theme in use: File Exploder's folders and files, the desktop's icons, Start
+# and the taskbar. Run with XDG_DATA_HOME pointing somewhere disposable (the compositor
+# installs the theme there). Check the shots by eye.
+wait 4
+shot 1-desktop
+run exec ./target/release/file-exploder
+expect-window exploder 20
+wait 2.5
+shot 2-exploder
+key alt+up
+wait 1
+shot 3-exploder-max
+click 24 780
+wait 1.2
+shot 4-start

@@ -321,12 +321,29 @@ pub fn sound_file(id: &str) -> Option<PathBuf> {
     SOUNDS.iter().any(|(s, _)| *s == id).then(|| sounds_dir().join(format!("{id}.wav")))
 }
 
+/// $XDG_DATA_HOME, else ~/.local/share.
+fn data_home() -> PathBuf {
+    match std::env::var("XDG_DATA_HOME") {
+        Ok(d) if !d.is_empty() => PathBuf::from(d),
+        _ => PathBuf::from(std::env::var("HOME").unwrap_or_default()).join(".local/share"),
+    }
+}
+
 /// Where VIDE-DE installs its bundled wallpapers.
 pub fn wallpapers_dir() -> PathBuf {
-    let data = std::env::var("XDG_DATA_HOME")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| PathBuf::from(std::env::var("HOME").unwrap_or_default()).join(".local/share"));
-    data.join("vide-de/wallpapers")
+    data_home().join("vide-de/wallpapers")
+}
+
+/// Our icon theme, `vide` (assets/icons/vide, installed by the compositor at login).
+pub fn icon_theme_dir() -> PathBuf {
+    data_home().join("icons/vide")
+}
+
+/// One of our own icons by its freedesktop name, if the `vide` theme has it. Every VIDE-DE
+/// program looks here first and falls back to the system theme for anything else.
+pub fn vide_icon(name: &str) -> Option<PathBuf> {
+    let base = icon_theme_dir().join("scalable");
+    ["places", "mimetypes", "apps", "devices", "actions"].iter().map(|d| base.join(d).join(format!("{name}.svg"))).find(|p| p.exists())
 }
 
 /// KDE's mouse settings (kcminputrc): profile 1 = flat, 2 = adaptive; speed -1..1.

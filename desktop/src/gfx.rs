@@ -259,6 +259,10 @@ pub fn load_icon(name: &str, size: u32) -> Option<Icon> {
 }
 
 pub fn find_icon(name: &str) -> Option<PathBuf> {
+    // Our own icon pack first; the system theme for anything it doesn't draw.
+    if let Some(p) = vide_config::vide_icon(name) {
+        return Some(p);
+    }
     let mut bases = vec![home().join(".local/share/icons")];
     for d in std::env::var("XDG_DATA_DIRS").unwrap_or_else(|_| "/usr/share".into()).split(':') {
         bases.push(PathBuf::from(d).join("icons"));

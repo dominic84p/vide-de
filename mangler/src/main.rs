@@ -3200,6 +3200,10 @@ fn resolve_icon(name: &str) -> Option<String> {
             if name.starts_with('/') {
                 return Path::new(name).exists().then(|| name.to_string());
             }
+            // Our own icon pack first; the system theme for anything it doesn't draw.
+            if let Some(p) = vide_config::vide_icon(name) {
+                return Some(p.display().to_string());
+            }
             let h = home();
             let roots = [
                 PathBuf::from("/usr/share/icons"),

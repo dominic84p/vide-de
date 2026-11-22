@@ -44,6 +44,9 @@ impl Icons {
     fn with_first(first: Option<String>) -> Self {
         let mut themes = Vec::new();
         themes.extend(first);
+        // Our own pack (folders, file types, our apps, toolbar glyphs) beats the user's theme;
+        // everything it doesn't draw, app icons above all, still comes from theirs.
+        themes.push("vide".into());
         if let Some(t) = kde_icon_theme() {
             if !themes.contains(&t) {
                 themes.push(t);

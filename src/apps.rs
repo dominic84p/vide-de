@@ -238,6 +238,20 @@ pub fn install_builtin() {
         }
     };
     write(&share.join("icons/hicolor/512x512/apps/vide-de.png"), include_bytes!("../assets/logo-512.png"));
+    // Our icon theme. Files it no longer has are removed, so a dropped icon falls back to the
+    // system theme instead of lingering.
+    let theme = vide_config::icon_theme_dir();
+    for (rel, bytes) in crate::icon_pack::FILES {
+        write(&theme.join(rel), bytes);
+    }
+    for ctx in std::fs::read_dir(theme.join("scalable")).into_iter().flatten().flatten() {
+        for f in std::fs::read_dir(ctx.path()).into_iter().flatten().flatten() {
+            let rel = f.path().strip_prefix(&theme).map(|r| r.to_string_lossy().into_owned()).unwrap_or_default();
+            if !crate::icon_pack::FILES.iter().any(|(r, _)| *r == rel) {
+                let _ = std::fs::remove_file(f.path());
+            }
+        }
+    }
     let walls = vide_config::wallpapers_dir();
     for (name, bytes) in WALLPAPERS {
         write(&walls.join(name), bytes);

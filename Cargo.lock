@@ -1534,6 +1534,7 @@ dependencies = [
  "image",
  "libc",
  "mime_guess",
+ "vide-config",
  "vide-fonts",
 ]
 
@@ -4364,6 +4365,7 @@ dependencies = [
  "eframe 0.37.0",
  "egui_extras",
  "png 0.18.1",
+ "vide-config",
  "vide-fonts",
 ]
 
@@ -4520,6 +4522,7 @@ dependencies = [
  "image",
  "libc",
  "sysinfo",
+ "vide-config",
  "vide-fonts",
 ]
 

@@ -9,6 +9,7 @@ mod cursor;
 mod desktops;
 mod focus;
 mod health;
+mod icon_pack;
 mod icons;
 mod input;
 mod ipc;
