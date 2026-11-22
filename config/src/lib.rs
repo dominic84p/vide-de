@@ -68,6 +68,9 @@ pub struct Config {
     /// "Windows larp mode": the Start button shows the Windoze logo from an installed icon theme
     /// (Windows 10, Win11) instead of VIDE's. We don't ship Microsoft's logo ourselves.
     pub windows_larp: bool,
+    /// "Remove tray overflow": apps' tray icons sit on the taskbar itself, as before the
+    /// overflow chevron, instead of in the grid behind it.
+    pub inline_tray: bool,
 }
 
 /// Whether an app's notifications make a sound.
@@ -113,6 +116,7 @@ impl Default for Config {
             icon_theme: String::new(),
             theme_system_icons: false,
             windows_larp: false,
+            inline_tray: false,
         }
     }
 }
@@ -160,6 +164,7 @@ impl Config {
                 "icon_theme" => c.icon_theme = v.to_string(),
                 "theme_system_icons" => c.theme_system_icons = v == "true",
                 "windows_larp" => c.windows_larp = v == "true",
+                "inline_tray" => c.inline_tray = v == "true",
                 _ => {}
             }
         }
@@ -178,7 +183,7 @@ impl Config {
              tap_to_click={}\nnatural_scroll={}\ndisable_while_typing={}\n\
              xkb_layout={}\nxkb_variant={}\nxkb_options={}\nkey_repeat_delay={}\nkey_repeat_rate={}\n\
              toasts={}\ntoast_seconds={}\nclock_24h={}\nlight_mode={}\nnotification_sound={}\nanimations={}\nnotification_sound_apps={}\n\
-             icon_theme={}\ntheme_system_icons={}\nwindows_larp={}\n",
+             icon_theme={}\ntheme_system_icons={}\nwindows_larp={}\ninline_tray={}\n",
             self.hide_kde_apps,
             self.mouse_flat,
             self.mouse_speed,
@@ -207,6 +212,7 @@ impl Config {
             self.icon_theme,
             self.theme_system_icons,
             self.windows_larp,
+            self.inline_tray,
         );
         // Write-then-rename so the compositor never reads a half-written file.
         let tmp = path.with_extension("conf.tmp");

@@ -50,3 +50,7 @@ Windoze 10, instead of on the taskbar. Click it for a grid of them: click an ico
 app, right-click for its menu; a click elsewhere or Esc closes the grid. Our own icons (network,
 brightness, volume) stay on the taskbar on a 24px grid. See `overflow.rs`.
 
+**Remove tray overflow** (Settings → Personalization → Taskbar) puts apps' tray icons back on
+the taskbar itself, as before the chevron, and drops the chevron. It's `inline_tray` in
+settings.conf.
+

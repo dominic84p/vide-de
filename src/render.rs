@@ -488,12 +488,11 @@ pub fn elements_with(renderer: &mut GlesRenderer, state: &mut State, view: Recta
                 theme_icons: system_icon_theme(state),
                 overflow_open: state.overflow.open.is_some(),
                 larp_logo: larp_logo_theme(state),
+                inline_tray: state.config.inline_tray,
             };
             if state.taskbar.as_ref().is_none_or(|t| t.key != key) {
-                // The app tray icons now live in the overflow grid, but loading them also lends
-                // them to windows without an icon of their own, so keep them fresh here.
-                tray_icons(state);
-                state.taskbar = Some(ui::draw_taskbar(state.font.as_ref(), &mut state.icons, state.logo.as_ref(), key));
+                let tray_icons = tray_icons(state);
+                state.taskbar = Some(ui::draw_taskbar(state.font.as_ref(), &mut state.icons, state.logo.as_ref(), &tray_icons, key));
             }
             // Buttons on the move: each its own picture, placed where it is this frame, so the GPU
             // slides them and the taskbar picture stays as it is. The held one goes in front.

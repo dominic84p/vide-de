@@ -311,10 +311,7 @@ impl Settings {
             SubPage::Colors => self.page_colors(ui),
             SubPage::Themes => self.page_themes(ui),
             SubPage::Start => self.page_start(ui),
-            SubPage::Taskbar => {
-                self.page_taskbar(ui);
-                false
-            }
+            SubPage::Taskbar => self.page_taskbar(ui),
             SubPage::AppsFeatures => {
                 self.page_apps_features(ui);
                 false
@@ -1300,8 +1297,15 @@ impl Settings {
         })
     }
 
-    fn page_taskbar(&mut self, ui: &mut egui::Ui) {
+    fn page_taskbar(&mut self, ui: &mut egui::Ui) -> bool {
         section_title(ui, "Taskbar");
+        let changed = setting_block(
+            ui,
+            "Remove tray overflow",
+            "Puts apps' tray icons (Discord, Steam...) on the taskbar itself, as before, instead of behind the ^ chevron.",
+            |ui| doze_toggle(ui, &mut self.config.inline_tray),
+        );
+        ui.add_space(8.0);
         card_frame().show(ui, |ui| {
             ui.set_width(ui.available_width());
             ui.label(RichText::new("VIDE-DE Taskbar").color(TEXT).size(14.5));
@@ -1310,6 +1314,7 @@ impl Settings {
             ui.label(RichText::new("• Task View button and Win+Tab open virtual desktops.").color(DIM).size(12.5));
             ui.label(RichText::new("• System tray shows Volume, Brightness, Wi-Fi, Bluetooth, and SNI apps.").color(DIM).size(12.5));
         });
+        changed
     }
 
     fn page_apps_features(&mut self, ui: &mut egui::Ui) {

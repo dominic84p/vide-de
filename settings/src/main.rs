@@ -278,6 +278,7 @@ const SEARCH_INDEX: &[SearchItem] = &[
     SearchItem { label: "Choose your default Windoze mode", keywords: "colors dark light mode theme taskbar", cat: Category::Personalization, page: SubPage::Colors },
     SearchItem { label: "Icon theme", keywords: "themes icons icon pack folders win11 look", cat: Category::Personalization, page: SubPage::Themes },
     SearchItem { label: "Taskbar info", keywords: "taskbar pins tray", cat: Category::Personalization, page: SubPage::Taskbar },
+    SearchItem { label: "Remove tray overflow", keywords: "tray overflow chevron hidden icons taskbar notification area", cat: Category::Personalization, page: SubPage::Taskbar },
     SearchItem { label: "Apps & features", keywords: "apps programs installed launch", cat: Category::Apps, page: SubPage::AppsFeatures },
     SearchItem { label: "Default apps", keywords: "default apps browser file manager", cat: Category::Apps, page: SubPage::DefaultApps },
     SearchItem { label: "Your account info", keywords: "account user profile session", cat: Category::Accounts, page: SubPage::YourInfo },

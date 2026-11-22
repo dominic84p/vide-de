@@ -130,6 +130,8 @@ pub struct TaskbarKey {
     pub overflow_open: bool,
     /// Windows larp mode: the icon theme whose Windoze logo goes on the Start button.
     pub larp_logo: Option<String>,
+    /// Apps' tray icons on the taskbar itself, not behind the overflow chevron.
+    pub inline_tray: bool,
 }
 
 pub struct Taskbar {
@@ -143,6 +145,7 @@ pub fn draw_taskbar(
     font: Option<&Font>,
     icons: &mut Icons,
     logo: Option<&crate::icons::Icon>,
+    tray_icons: &[Option<std::rc::Rc<crate::icons::Icon>>],
     key: TaskbarKey,
 ) -> Taskbar {
     let w = key.width;
@@ -218,8 +221,11 @@ pub fn draw_taskbar(
     let right_edge = w - CLOCK_W - notify_w - SHOW_DESKTOP_W;
     let tray_items = if key.secondary { 0 } else { 3 };
     // Apps' tray icons hide behind one chevron, as on Windoze 10.
-    let chevron = !key.secondary && !key.tray_apps.is_empty();
-    let apps_x = right_edge - TRAY_W * tray_items - if chevron { TRAY_W } else { 0 };
+    // Or, with "Remove tray overflow", each on the taskbar itself as before.
+    let has_apps = !key.secondary && !key.tray_apps.is_empty();
+    let chevron = has_apps && !key.inline_tray;
+    let inline = if has_apps && key.inline_tray { key.tray_apps.len() as i32 } else { 0 };
+    let apps_x = right_edge - TRAY_W * tray_items - TRAY_W * inline - if chevron { TRAY_W } else { 0 };
     // A button that's sliding (or held) isn't painted here: it's its own picture, moved by the
     // GPU every frame (`draw_task_button`), and its slot shows bare taskbar meanwhile.
     let fits = (((apps_x - TASK_BUTTONS_X) / TASK_W).max(0) as usize).min(key.items.len());
@@ -245,7 +251,19 @@ pub fn draw_taskbar(
         c.line(cx, cy - 2.5, cx + 4.5, cy + 2.0, 1.2, th().text);
         hits.push((rect(apps_x, 0, TRAY_W, TASKBAR_H), hit));
     }
-    let tray_x = apps_x + if chevron { TRAY_W } else { 0 };
+    for (i, (id, _)) in key.tray_apps.iter().enumerate().take(inline as usize) {
+        let bx = apps_x + i as i32 * TRAY_W;
+        let hit = TaskbarHit::TrayApp(id.clone());
+        if hovered(&hit) {
+            c.rect(bx, 0, TRAY_W, TASKBAR_H, th().hover);
+        }
+        match tray_icons.get(i).and_then(|o| o.as_ref()) {
+            Some(icon) => c.icon(icon, bx + (TRAY_W - icon.w as i32) / 2, (TASKBAR_H - icon.h as i32) / 2),
+            None => c.round_rect(bx + 4, 12, 16, 16, 3, ACCENT),
+        }
+        hits.push((rect(bx, 0, TRAY_W, TASKBAR_H), hit));
+    }
+    let tray_x = apps_x + TRAY_W * inline + if chevron { TRAY_W } else { 0 };
 
     // Tray: network, brightness, volume, just left of the clock. Bluetooth lives in
     // the Action Center's quick actions, as in Windoze 10.
