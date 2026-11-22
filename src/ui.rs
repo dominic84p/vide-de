@@ -44,7 +44,7 @@ const NOTIFY_W: i32 = 40;
 /// Windoze 10's tray grid: 24px a button.
 const TRAY_W: i32 = 24;
 const SHOW_DESKTOP_W: i32 = 5;
-/// Windoze 10's edges on a dark taskbar: the search box outline, the show-desktop divider.
+/// Windoze 10's divider before the show-desktop sliver, on a dark taskbar.
 const EDGE: Rgba = hex(0x4d4d4d);
 pub const MENU_W: i32 = 680;
 const MENU_ROW: i32 = 36;
@@ -178,19 +178,21 @@ pub fn draw_taskbar(
             }
         }
         None => {
+            // Windoze 10's box is white with dark text, dark taskbar or light; a light taskbar
+            // gives it an edge so it still reads as a box.
             c.rect(sx, 0, SEARCH_W, TASKBAR_H, if hovered(&TaskbarHit::Search) { th().search_hover } else { th().search_bg });
-            // Windoze 10's box has a 1px edge: grey on a dark taskbar, and white on a light one
-            // needs it to read as a box at all.
-            c.outline(sx, 0, SEARCH_W, TASKBAR_H, if crate::theme::light() { th().divider } else { EDGE });
-            magnifier(&mut c, sx as f32 + 22.0, TASKBAR_H as f32 / 2.0, th().text, th().search_bg);
+            if crate::theme::light() {
+                c.outline(sx, 0, SEARCH_W, TASKBAR_H, th().divider);
+            }
+            magnifier(&mut c, sx as f32 + 22.0, TASKBAR_H as f32 / 2.0, hex(0x000000), th().search_bg);
             if let Some(f) = font {
-                c.text(f, 13.0, sx + 42, 0, TASKBAR_H, th().text_dim, "Type here to search");
+                c.text(f, 13.0, sx + 42, 0, TASKBAR_H, hex(0x767676), "Type here to search");
             }
         }
     }
     hits.push((rect(sx, 0, SEARCH_W, TASKBAR_H), TaskbarHit::Search));
 
-    // Task View: Windoze 10 overlapping desktop frames with the current workspace badge.
+    // Task View: Windoze 10's overlapping desktop frames.
     let tv_x = SEARCH_END;
     let tv_bg = if key.taskview_open { th().active } else if hovered(&TaskbarHit::TaskView) { th().hover } else { th().taskbar };
     c.rect(tv_x, 0, TASK_W, TASKBAR_H, tv_bg);
