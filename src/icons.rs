@@ -153,6 +153,34 @@ impl Icons {
         icon
     }
 
+    /// The first of `names` that theme `theme` itself has (not what it inherits). For the
+    /// taskbar's system icons in the theme's own look: the one-colour `-symbolic` version first,
+    /// which a theme draws to suit its panel (light on a dark variant), like Windoze's tray.
+    pub fn from_theme(&mut self, theme: &str, names: &[&str], size: u32) -> Option<Rc<Icon>> {
+        for name in names {
+            for n in [format!("{name}-symbolic"), name.to_string()] {
+                let key = (format!("{theme}:{n}"), size);
+                if let Some(hit) = self.cache.get(&key) {
+                    if hit.is_some() {
+                        return hit.clone();
+                    }
+                    continue;
+                }
+                // An SVG that only wraps a bitmap renders empty here (no raster support in our
+                // resvg); count it as missing so the next candidate gets a go.
+                let icon = vide_config::icons::find_own_in(theme, &n, size, "status")
+                    .and_then(|p| load(&p, size))
+                    .filter(|i| i.rgba.chunks(4).any(|px| px[3] > 0))
+                    .map(Rc::new);
+                self.cache.insert(key, icon.clone());
+                if icon.is_some() {
+                    return icon;
+                }
+            }
+        }
+        None
+    }
+
     fn find_custom(&self, name: &str) -> Option<&Icon> {
         if let Some(i) = self.custom.get(name) {
             return Some(i);

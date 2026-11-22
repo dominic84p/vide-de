@@ -102,7 +102,23 @@ pub fn installed() -> Vec<(String, String)> {
 
 /// `name` in theme `id` (or what it inherits, hicolor aside), closest to `size` pixels.
 pub fn find_in(id: &str, name: &str, size: u32) -> Option<PathBuf> {
-    fn walk(id: &str, name: &str, size: u32, seen: &mut Vec<String>) -> Option<PathBuf> {
+    lookup(id, name, size, true, None)
+}
+
+/// `name` in theme `id` itself, not what it inherits: for icons that should be the theme's
+/// own look or ours, never a third theme's.
+pub fn find_own(id: &str, name: &str, size: u32) -> Option<PathBuf> {
+    lookup(id, name, size, false, None)
+}
+
+/// Like `find_own`, preferring folders whose path has `context` in it ("status": panel and
+/// tray icons, which are drawn for a panel's background, over toolbar ones of the same name).
+pub fn find_own_in(id: &str, name: &str, size: u32, context: &str) -> Option<PathBuf> {
+    lookup(id, name, size, false, Some(context))
+}
+
+fn lookup(id: &str, name: &str, size: u32, inherit: bool, context: Option<&str>) -> Option<PathBuf> {
+    fn walk(id: &str, name: &str, size: u32, inherit: bool, context: Option<&str>, seen: &mut Vec<String>) -> Option<PathBuf> {
         if seen.iter().any(|s| s == id) || seen.len() > 4 || id == "hicolor" {
             return None;
         }
@@ -122,7 +138,10 @@ pub fn find_in(id: &str, name: &str, size: u32) -> Option<PathBuf> {
                     }
                     // A scalable folder fits any size; otherwise the nearest size wins, SVG or
                     // not (Breeze's 16px icons are SVGs too, but monochrome).
-                    let cost = if *scalable { 0 } else { dsize.abs_diff(size) + 1 };
+                    let mut cost = if *scalable { 0 } else { dsize.abs_diff(size) + 1 };
+                    if context.is_some_and(|c| !dir.contains(c)) {
+                        cost += 1000;
+                    }
                     if best.as_ref().is_none_or(|(c, _)| cost < *c) {
                         best = Some((cost, p));
                     }
@@ -132,9 +151,12 @@ pub fn find_in(id: &str, name: &str, size: u32) -> Option<PathBuf> {
                 break;
             }
         }
-        best.map(|(_, p)| p).or_else(|| t.inherits.iter().find_map(|i| walk(i, name, size, seen)))
+        if !inherit {
+            return best.map(|(_, p)| p);
+        }
+        best.map(|(_, p)| p).or_else(|| t.inherits.iter().find_map(|i| walk(i, name, size, inherit, context, seen)))
     }
-    walk(id, name, size, &mut Vec::new())
+    walk(id, name, size, inherit, context, &mut Vec::new())
 }
 
 static CHOSEN: Mutex<Option<String>> = Mutex::new(None);

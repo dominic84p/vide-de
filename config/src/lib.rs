@@ -62,6 +62,9 @@ pub struct Config {
     /// The icon theme our shell and apps use, by folder name ("Win11", "vide"); empty for
     /// the system's (KDE's, else Breeze). See `icons`.
     pub icon_theme: String,
+    /// The taskbar's system icons (Wi-Fi, volume, brightness, Action Center) from the chosen
+    /// icon theme instead of VIDE's own glyphs, where the theme has them.
+    pub theme_system_icons: bool,
 }
 
 /// Whether an app's notifications make a sound.
@@ -105,6 +108,7 @@ impl Default for Config {
             animations: true,
             notification_sound_apps: String::new(),
             icon_theme: String::new(),
+            theme_system_icons: false,
         }
     }
 }
@@ -150,6 +154,7 @@ impl Config {
                 "animations" => c.animations = v == "true",
                 "notification_sound_apps" => c.notification_sound_apps = v.to_string(),
                 "icon_theme" => c.icon_theme = v.to_string(),
+                "theme_system_icons" => c.theme_system_icons = v == "true",
                 _ => {}
             }
         }
@@ -168,7 +173,7 @@ impl Config {
              tap_to_click={}\nnatural_scroll={}\ndisable_while_typing={}\n\
              xkb_layout={}\nxkb_variant={}\nxkb_options={}\nkey_repeat_delay={}\nkey_repeat_rate={}\n\
              toasts={}\ntoast_seconds={}\nclock_24h={}\nlight_mode={}\nnotification_sound={}\nanimations={}\nnotification_sound_apps={}\n\
-             icon_theme={}\n",
+             icon_theme={}\ntheme_system_icons={}\n",
             self.hide_kde_apps,
             self.mouse_flat,
             self.mouse_speed,
@@ -195,6 +200,7 @@ impl Config {
             self.animations,
             self.notification_sound_apps,
             self.icon_theme,
+            self.theme_system_icons,
         );
         // Write-then-rename so the compositor never reads a half-written file.
         let tmp = path.with_extension("conf.tmp");

@@ -1273,6 +1273,13 @@ impl Settings {
             ui.add_space(6.0);
         }
         ui.add_space(4.0);
+        changed |= setting_block(
+            ui,
+            "Use the selected theme's system icons instead of VIDE's",
+            "Wi-Fi, volume, brightness and the Action Center button on the taskbar. Ones the theme doesn't have stay VIDE's.",
+            |ui| doze_toggle(ui, &mut self.config.theme_system_icons),
+        );
+        ui.add_space(8.0);
         ui.label(
             RichText::new("New themes go in ~/.local/share/icons. Apps that are already open pick up a change when they're opened again.")
                 .color(DIM)

@@ -118,6 +118,9 @@ pub struct TaskbarKey {
     /// Another monitor's taskbar: Start, search, Task View, its windows, the clock. The tray
     /// and the Action Center stay on the main one, as on Windoze.
     pub secondary: bool,
+    /// Draw the tray's and Action Center's icons from this icon theme where it has them
+    /// (Settings' "use the selected theme's system icons"), instead of our glyphs.
+    pub theme_icons: Option<String>,
 }
 
 pub struct Taskbar {
@@ -256,10 +259,12 @@ pub fn draw_taskbar(
             c.rect(bx, 0, TRAY_W, TASKBAR_H, th().hover);
         }
         let (cx, cy) = (bx as f32 + TRAY_W as f32 / 2.0, TASKBAR_H as f32 / 2.0);
-        match hit {
-            TaskbarHit::Volume => speaker(&mut c, cx - 5.0, cy, key.volume.1, key.volume.0 as f32 / 100.0, th().text),
-            TaskbarHit::Brightness => sun(&mut c, cx, cy, th().text),
-            _ => net_icon(&mut c, cx, cy, key.net),
+        let themed = key.theme_icons.as_deref().and_then(|t| icons.from_theme(t, &system_icon_names(&hit, &key), 20));
+        match (themed, &hit) {
+            (Some(icon), _) => c.icon(&icon, (cx - 10.0) as i32, (cy - 10.0) as i32),
+            (None, TaskbarHit::Volume) => speaker(&mut c, cx - 5.0, cy, key.volume.1, key.volume.0 as f32 / 100.0, th().text),
+            (None, TaskbarHit::Brightness) => sun(&mut c, cx, cy, th().text),
+            (None, _) => net_icon(&mut c, cx, cy, key.net),
         }
         hits.push((rect(bx, 0, TRAY_W, TASKBAR_H), hit));
     }
@@ -292,13 +297,16 @@ pub fn draw_taskbar(
     if !key.secondary {
         let (any, unseen) = key.notifications;
         let lines = if any { r##"<path d="M6 7.5h8M6 10.5h8" stroke="#fff" stroke-width="1.1"/>"## } else { "" };
-        crate::tray::glyph(
-            &mut c,
-            format!(r##"<path d="M2.5 3.5h15v10h-7l-4 3.5v-3.5h-4z" fill="none" stroke="#fff" stroke-width="1.15" stroke-linejoin="round"/>{lines}"##),
-            (nx + NOTIFY_W / 2) as f32,
-            (TASKBAR_H / 2) as f32,
-            20,
-        );
+        match key.theme_icons.as_deref().and_then(|t| icons.from_theme(t, &system_icon_names(&TaskbarHit::ActionCenter, &key), 20)) {
+            Some(icon) => c.icon(&icon, nx + NOTIFY_W / 2 - 10, TASKBAR_H / 2 - 10),
+            None => crate::tray::glyph(
+                &mut c,
+                format!(r##"<path d="M2.5 3.5h15v10h-7l-4 3.5v-3.5h-4z" fill="none" stroke="#fff" stroke-width="1.15" stroke-linejoin="round"/>{lines}"##),
+                (nx + NOTIFY_W / 2) as f32,
+                (TASKBAR_H / 2) as f32,
+                20,
+            ),
+        }
         if unseen > 0 {
             if let Some(f) = font {
                 let n = if unseen > 9 { "9+".to_string() } else { unseen.to_string() };
@@ -362,6 +370,35 @@ fn paint_task_button(c: &mut Canvas, font: Option<&Font>, icons: &mut Icons, ite
         let bx = x + TASK_W - bw - 4;
         c.round_rect(bx, 5, bw, 15, 7, ACCENT);
         c.text(f, 10.0, bx + (bw - measure(f, 10.0, &n)) / 2, 5, 15, ON_ACCENT, &n);
+    }
+}
+
+/// Icon-theme names for a tray button's current state, most specific first.
+fn system_icon_names(hit: &TaskbarHit, key: &TaskbarKey) -> Vec<&'static str> {
+    use crate::tray::NetIcon;
+    match hit {
+        TaskbarHit::Volume => {
+            let (v, muted) = key.volume;
+            vec![match (muted, v) {
+                (true, _) | (_, 0) => "audio-volume-muted",
+                (_, 1..=33) => "audio-volume-low",
+                (_, 34..=66) => "audio-volume-medium",
+                _ => "audio-volume-high",
+            }]
+        }
+        TaskbarHit::Brightness => vec!["display-brightness", "brightness-high", "display-brightness-high"],
+        TaskbarHit::Network => match key.net {
+            NetIcon::Airplane => vec!["network-flightmode-on", "airplane-mode"],
+            NetIcon::Wired => vec!["network-wired"],
+            NetIcon::Wifi(4) => vec!["network-wireless-signal-excellent"],
+            NetIcon::Wifi(3) => vec!["network-wireless-signal-good"],
+            NetIcon::Wifi(2) => vec!["network-wireless-signal-ok"],
+            NetIcon::Wifi(_) => vec!["network-wireless-signal-weak"],
+            NetIcon::Searching => vec!["network-wireless-signal-none", "network-wireless-acquiring"],
+            NetIcon::WifiOff => vec!["network-wireless-offline", "network-offline"],
+        },
+        TaskbarHit::ActionCenter => vec!["notifications", "preferences-desktop-notification-bell", "notification"],
+        _ => Vec::new(),
     }
 }
 

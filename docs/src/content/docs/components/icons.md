@@ -21,6 +21,13 @@ and "System default" (KDE's theme, else Breeze). The choice is `icon_theme` in s
   never leaves a blank. The Themes page shows a filled-in icon faded, so you can see what a
   theme is missing. Apps that aren't ours follow KDE's or GTK's icon settings, not this one.
 
+**Use the selected theme's system icons instead of VIDE's** (a toggle on the same page,
+off by default): the taskbar's Wi-Fi, volume, brightness and Action Center icons come from the
+chosen theme instead of VIDE's own glyphs. It looks in the theme's panel (`status`) icons, its
+one-colour `-symbolic` versions first, and in its `-dark` variant on a dark taskbar (Win11 has
+`Win11-dark`). Any the theme lacks, or that come out empty (SVGs wrapping a bitmap, which we
+can't draw), stay VIDE's.
+
 For a Windoze look, install an icon theme into `~/.local/share/icons` and pick it. Neither
 ships with VIDE-DE:
 

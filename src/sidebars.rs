@@ -69,6 +69,7 @@ impl State {
             notifications: (false, 0),
             action_center_open: false,
             secondary: true,
+            theme_icons: None,
         };
         while self.side_bars.len() <= i {
             self.side_bars.push(None);

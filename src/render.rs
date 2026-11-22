@@ -478,6 +478,7 @@ pub fn elements_with(renderer: &mut GlesRenderer, state: &mut State, view: Recta
                 notifications: (!state.action_center.notifications.is_empty(), state.action_center.unseen),
                 action_center_open: state.action_center.open,
                 secondary: false,
+                theme_icons: system_icon_theme(state),
             };
             if state.taskbar.as_ref().is_none_or(|t| t.key != key) {
                 let tray_icons = tray_icons(state);
@@ -700,6 +701,29 @@ pub fn elements_with(renderer: &mut GlesRenderer, state: &mut State, view: Recta
         state.needs_redraw = true;
     }
     out
+}
+
+/// The icon theme the taskbar's system icons come from, if Settings says to use the chosen
+/// theme's: its `-dark` variant (light glyphs) on a dark taskbar when it has one.
+fn system_icon_theme(state: &State) -> Option<String> {
+    let t = &state.config.icon_theme;
+    if !state.config.theme_system_icons || t.is_empty() {
+        return None;
+    }
+    if !crate::theme::light() {
+        // Whether the dark variant is installed, looked up once per theme (this runs per frame).
+        static DARK: std::sync::Mutex<Option<(String, Option<String>)>> = std::sync::Mutex::new(None);
+        let mut memo = DARK.lock().unwrap();
+        if memo.as_ref().is_none_or(|(k, _)| k != t) {
+            let dark = format!("{}-dark", t.trim_end_matches("-dark"));
+            let have = vide_config::icons::installed().iter().any(|(id, _)| *id == dark);
+            *memo = Some((t.clone(), have.then_some(dark)));
+        }
+        if let Some((_, Some(dark))) = memo.as_ref() {
+            return Some(dark.clone());
+        }
+    }
+    Some(t.clone())
 }
 
 const TRAY_ICON: u32 = 20;
