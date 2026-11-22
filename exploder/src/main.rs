@@ -2887,8 +2887,8 @@ fn icon_path(name: &str, size: u32) -> Option<String> {
         .entry((name.to_string(), big))
         .or_insert_with(|| {
             // Breeze's 16px places and mimetypes are monochrome; 32 and up are in colour, like Explorer's.
-            // Our own icon pack first; the system theme for anything it doesn't draw.
-            if let Some(p) = vide_config::vide_icon(name) {
+            // The icon theme chosen in Settings first; the system theme for anything it lacks.
+            if let Some(p) = vide_config::themed_icon(name, size) {
                 return Some(p.display().to_string());
             }
             let sizes: &[u32] = if big { &[96, 64, 48, 32, 24, 22, 16] } else { &[32, 48, 64, 24, 22, 16] };

@@ -59,6 +59,9 @@ pub struct Config {
     pub animations: bool,
     /// Per-app notification sound, as `app=always;other=never`: see `app_sound`.
     pub notification_sound_apps: String,
+    /// The icon theme our shell and apps use, by folder name ("Win11", "vide"); empty for
+    /// the system's (KDE's, else Breeze). See `icons`.
+    pub icon_theme: String,
 }
 
 /// Whether an app's notifications make a sound.
@@ -101,6 +104,7 @@ impl Default for Config {
             notification_sound: "ding".into(),
             animations: true,
             notification_sound_apps: String::new(),
+            icon_theme: String::new(),
         }
     }
 }
@@ -145,6 +149,7 @@ impl Config {
                 "notification_sound" if !v.is_empty() => c.notification_sound = v.to_string(),
                 "animations" => c.animations = v == "true",
                 "notification_sound_apps" => c.notification_sound_apps = v.to_string(),
+                "icon_theme" => c.icon_theme = v.to_string(),
                 _ => {}
             }
         }
@@ -162,7 +167,8 @@ impl Config {
              display_mode={}\ndisplay_scale={:.2}\nnight_light={}\nnight_light_strength={:.2}\nidle_lock_minutes={}\n\
              tap_to_click={}\nnatural_scroll={}\ndisable_while_typing={}\n\
              xkb_layout={}\nxkb_variant={}\nxkb_options={}\nkey_repeat_delay={}\nkey_repeat_rate={}\n\
-             toasts={}\ntoast_seconds={}\nclock_24h={}\nlight_mode={}\nnotification_sound={}\nanimations={}\nnotification_sound_apps={}\n",
+             toasts={}\ntoast_seconds={}\nclock_24h={}\nlight_mode={}\nnotification_sound={}\nanimations={}\nnotification_sound_apps={}\n\
+             icon_theme={}\n",
             self.hide_kde_apps,
             self.mouse_flat,
             self.mouse_speed,
@@ -187,7 +193,8 @@ impl Config {
             self.light_mode,
             self.notification_sound,
             self.animations,
-            self.notification_sound_apps
+            self.notification_sound_apps,
+            self.icon_theme,
         );
         // Write-then-rename so the compositor never reads a half-written file.
         let tmp = path.with_extension("conf.tmp");
@@ -321,6 +328,9 @@ pub fn sound_file(id: &str) -> Option<PathBuf> {
     SOUNDS.iter().any(|(s, _)| *s == id).then(|| sounds_dir().join(format!("{id}.wav")))
 }
 
+pub mod icons;
+pub use icons::themed_icon;
+
 /// $XDG_DATA_HOME, else ~/.local/share.
 fn data_home() -> PathBuf {
     match std::env::var("XDG_DATA_HOME") {
@@ -334,17 +344,12 @@ pub fn wallpapers_dir() -> PathBuf {
     data_home().join("vide-de/wallpapers")
 }
 
-/// Our icon theme, `vide` (assets/icons/vide, installed by the compositor at login).
+/// The icon theme we ship, `vide` (assets/icons/vide, installed by the compositor at login).
 pub fn icon_theme_dir() -> PathBuf {
     data_home().join("icons/vide")
 }
 
-/// One of our own icons by its freedesktop name, if the `vide` theme has it. Every VIDE-DE
-/// program looks here first and falls back to the system theme for anything else.
-pub fn vide_icon(name: &str) -> Option<PathBuf> {
-    let base = icon_theme_dir().join("scalable");
-    ["places", "mimetypes", "apps", "devices", "actions"].iter().map(|d| base.join(d).join(format!("{name}.svg"))).find(|p| p.exists())
-}
+
 
 /// KDE's mouse settings (kcminputrc): profile 1 = flat, 2 = adaptive; speed -1..1.
 /// Takes the first pointer device listed.

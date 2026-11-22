@@ -1,0 +1,14 @@
+# Settings > Personalization > Themes lists the installed icon themes with a preview row;
+# picking one switches the taskbar and Start over at once. Run with XDG_DATA_HOME pointing
+# somewhere disposable. Check the shots by eye.
+wait 3
+run exec ./target/release/vide-settings --page themes
+expect-window Settings 20
+wait 2
+key alt+up
+wait 1.5
+shot 1-themes
+# Pick VIDE: the taskbar's buttons change to its icons straight away.
+click 760 586
+wait 2.5
+shot 2-vide-picked

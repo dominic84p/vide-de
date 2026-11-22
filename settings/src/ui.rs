@@ -309,6 +309,7 @@ impl Settings {
             }
             SubPage::Background => self.page_background(ui),
             SubPage::Colors => self.page_colors(ui),
+            SubPage::Themes => self.page_themes(ui),
             SubPage::Start => self.page_start(ui),
             SubPage::Taskbar => {
                 self.page_taskbar(ui);
@@ -1215,6 +1216,65 @@ impl Settings {
             }
             changed
         })
+    }
+
+    /// Icon themes: every installed one, with a row of its icons to compare by.
+    fn page_themes(&mut self, ui: &mut egui::Ui) -> bool {
+        section_title(ui, "Themes");
+        ui.label(RichText::new("Icons").color(TEXT).size(14.0));
+        ui.label(
+            RichText::new("Used by the taskbar, Start, the desktop, File Exploder and our other apps. Anything a theme lacks comes from the system's.")
+                .color(DIM)
+                .size(12.5),
+        );
+        ui.add_space(8.0);
+        const SAMPLE: [&str; 7] = ["folder", "folder-documents", "user-home", "text-x-generic", "image-x-generic", "user-trash", "utilities-terminal"];
+        let mut themes = vec![(String::new(), "System default".to_string())];
+        themes.extend(vide_config::icons::installed());
+        let mut changed = false;
+        for (id, name) in themes {
+            let selected = self.config.icon_theme == id;
+            let mut radio = false;
+            let r = card_frame()
+                .stroke(Stroke::new(if selected { 2.0 } else { 1.0 }, if selected { ACCENT } else { BORDER }))
+                .show(ui, |ui| {
+                    ui.set_width(ui.available_width());
+                    ui.horizontal(|ui| {
+                        radio = ui.radio(selected, "").clicked();
+                        ui.label(RichText::new(&name).color(TEXT).size(14.0));
+                    });
+                    // The system default borrows Breeze's look for its preview.
+                    let preview = if id.is_empty() { "breeze" } else { id.as_str() };
+                    ui.horizontal(|ui| {
+                        ui.add_space(26.0);
+                        for icon in SAMPLE {
+                            match vide_config::icons::find_in(preview, icon, 32) {
+                                Some(p) => {
+                                    ui.add(egui::Image::new(format!("file://{}", p.display())).fit_to_exact_size(Vec2::splat(32.0)));
+                                }
+                                None => {
+                                    ui.add_space(32.0);
+                                }
+                            }
+                            ui.add_space(6.0);
+                        }
+                    });
+                })
+                .response
+                .interact(egui::Sense::click());
+            if (r.clicked() || radio) && !selected {
+                self.config.icon_theme = id;
+                changed = true;
+            }
+            ui.add_space(6.0);
+        }
+        ui.add_space(4.0);
+        ui.label(
+            RichText::new("New themes go in ~/.local/share/icons. Apps that are already open pick up a change when they're opened again.")
+                .color(DIM)
+                .size(12.0),
+        );
+        changed
     }
 
     fn page_start(&mut self, ui: &mut egui::Ui) -> bool {

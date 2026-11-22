@@ -283,8 +283,8 @@ fn raster_stroke(px: &mut [u8], w: usize, h: usize, s: &StrokeData) {
 }
 
 fn icon(name: &str) -> egui::Image<'static> {
-    // Our own icon pack first, Breeze's toolbar set for anything it doesn't draw.
-    let path = vide_config::vide_icon(name).map(|p| p.display().to_string()).unwrap_or_else(|| format!("/usr/share/icons/breeze/actions/22/{name}.svg"));
+    // The icon theme chosen in Settings first, Breeze's toolbar set for anything it lacks.
+    let path = vide_config::themed_icon(name, 22).map(|p| p.display().to_string()).unwrap_or_else(|| format!("/usr/share/icons/breeze/actions/22/{name}.svg"));
     egui::Image::new(format!("file://{path}")).fit_to_exact_size(Vec2::splat(22.0))
 }
 

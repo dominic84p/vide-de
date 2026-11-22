@@ -259,8 +259,8 @@ pub fn load_icon(name: &str, size: u32) -> Option<Icon> {
 }
 
 pub fn find_icon(name: &str) -> Option<PathBuf> {
-    // Our own icon pack first; the system theme for anything it doesn't draw.
-    if let Some(p) = vide_config::vide_icon(name) {
+    // The icon theme chosen in Settings first; the system theme for anything it lacks.
+    if let Some(p) = vide_config::themed_icon(name, 48) {
         return Some(p);
     }
     let mut bases = vec![home().join(".local/share/icons")];

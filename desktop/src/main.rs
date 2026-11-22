@@ -466,7 +466,13 @@ impl Desktop {
                 self.wallpaper = None;
                 self.dirty = true;
             }
+            let icons_changed = new.icon_theme != self.config.icon_theme;
             self.config = new;
+            if icons_changed {
+                vide_config::icons::set_theme(&self.config.icon_theme);
+                self.rescan();
+                self.dirty = true;
+            }
         }
         let dm = std::fs::metadata(desktop_dir()).and_then(|m| m.modified()).ok();
         if dm != self.desktop_mtime && self.renaming.is_none() {

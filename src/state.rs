@@ -864,6 +864,15 @@ impl State {
             self.keyboard.change_repeat_info(new.key_repeat_rate, new.key_repeat_delay);
         }
         tracing::info!("settings reloaded: {new:?}");
+        if new.icon_theme != self.config.icon_theme {
+            // Icons::new reads the theme from settings.conf, which is already the new one.
+            self.icons = Icons::new();
+            self.tray_theme = crate::icons::Icons::dark();
+            self.repaint_shell();
+            for w in &mut self.wm.windows {
+                w.titlebar = None;
+            }
+        }
         if crate::theme::set_light(new.light_mode) {
             self.repaint_shell();
         }
