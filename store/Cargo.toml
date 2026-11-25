@@ -6,7 +6,8 @@ description = "Window Shopping - Software Center for VIDE-DE"
 
 [dependencies]
 vide-fonts = { path = "../fonts" }
-eframe = "0.37"
+# glow, not the default wgpu: a Vulkan device costs ~200 MiB of VRAM per app on NVIDIA.
+eframe = { version = "0.37", default-features = false, features = ["accesskit", "clipboard", "default_fonts", "links", "system_fonts", "wayland", "x11", "glow"] }
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp"] }
 resvg = { version = "0.50.0", default-features = false }
 serde_json = "1.0.154"

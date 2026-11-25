@@ -6,6 +6,7 @@ description = "Emoji Panic: the emoji panel (Win+.), like Windoze's, but panicki
 
 [dependencies]
 vide-fonts = { path = "../fonts" }
-eframe = "0.37"
+# glow, not the default wgpu: a Vulkan device costs ~200 MiB of VRAM per app on NVIDIA.
+eframe = { version = "0.37", default-features = false, features = ["accesskit", "clipboard", "default_fonts", "links", "system_fonts", "wayland", "x11", "glow"] }
 emojis = "0.6"
 vide-config = { path = "../config" }
