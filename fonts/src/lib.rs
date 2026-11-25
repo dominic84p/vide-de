@@ -202,25 +202,32 @@ fn draw_emoji(bytes: &[u8], index: u32, ch: char, px: u32) -> Option<Emoji> {
 /// Hebrew, Devanagari, Thai, symbols), as (name, file bytes, collection index). egui can't
 /// draw colour emoji, so those are left out; its own font has black-and-white ones.
 pub fn egui_fallbacks() -> Vec<(String, Vec<u8>, u32)> {
+    // Picked with ttf-parser, not through the registry: fontdue outlines every glyph up front,
+    // which for Noto CJK's 65k glyphs cost each egui app ~375 MiB of RAM it never used.
     let probes = ['あ', '中', '한', 'ب', 'ש', 'क', 'ก', '★', '→'];
     let mut out: Vec<(String, Vec<u8>, u32)> = Vec::new();
-    let mut used = std::collections::HashSet::new();
+    let mut tried = std::collections::HashSet::new();
+    let has = |bytes: &[u8], index: u32, ch: char| {
+        ttf_parser::Face::parse(bytes, index).ok().is_some_and(|f| (f.tables().glyf.is_some() || f.tables().cff.is_some()) && f.glyph_index(ch).is_some())
+    };
     for ch in probes {
-        let Some(Loaded::Outline(_)) = fallback_for(ch) else { continue };
-        let Ok(reg) = registry().lock() else { continue };
-        let key = reg.fonts.iter().find(|(_, f)| f.is_some_and(|f| std::ptr::eq(f, fallback_for_cached(&reg, ch)))).map(|(k, _)| k.clone());
-        drop(reg);
-        if let Some((path, index)) = key.filter(|k| used.insert(k.clone())) {
-            if let Ok(bytes) = std::fs::read(&path) {
-                out.push((format!("vide-fallback-{}", out.len()), bytes, index));
+        if out.iter().any(|(_, bytes, index)| has(bytes, *index, ch)) {
+            continue;
+        }
+        let having: std::collections::HashSet<(PathBuf, u32)> =
+            fc_lines(&["--format=%{file}\t%{index}\n", &format!(":charset={:x}", ch as u32)], "fc-list").into_iter().collect();
+        for (path, index) in preference().iter().filter(|k| having.contains(*k)).take(4) {
+            if !tried.insert((path.clone(), *index)) {
+                continue;
+            }
+            let Ok(bytes) = std::fs::read(path) else { continue };
+            if has(&bytes, *index, ch) {
+                out.push((format!("vide-fallback-{}", out.len()), bytes, *index));
+                break;
             }
         }
     }
     out
-}
-
-fn fallback_for_cached(reg: &Registry, ch: char) -> *const Loaded {
-    reg.chars.get(&ch).copied().flatten().map_or(std::ptr::null(), |f| f as *const Loaded)
 }
 
 /// Give an egui app the fallback fonts: `vide_fonts::install_egui!(eframe::egui, cc.egui_ctx)`.
