@@ -159,14 +159,15 @@ Screenshot markup tool. **Compositor only captures** (via IPC); markup/save/copy
 
 ### Features
 
-- Receives snip via IPC (`$VIDE_IPC`)
-- **Tools:** Pen, Highlighter, Eraser, Shapes, Text, Crop
-- **Colors:** Preset + custom
-- **Stroke width** slider
+- Opens the PNG the compositor saved for a region snip
+- **One window for every snip:** later snips open as tabs in the running copy instead of
+  starting another process (Ctrl+W closes a tab, Ctrl+Tab switches)
+- **Tools:** Ballpoint pen, Pencil, Highlighter, Eraser (whole strokes), Crop
+- **Colors and stroke width** per pen (click the active pen again)
 - **Undo/Redo** (Ctrl+Z / Ctrl+Y)
-- **Save** to file
-- **Copy** to clipboard
-- **Share** via xdg-share (future)
+- **Save** to `~/Pictures/Screenshots` (Ctrl+S)
+- **Copy** to clipboard (Ctrl+C)
+- **New** snip (Ctrl+N) through the compositor's `snip` IPC command
 
 ### Workflow
 
@@ -174,22 +175,16 @@ Screenshot markup tool. **Compositor only captures** (via IPC); markup/save/copy
 Win+Shift+S
     │
     ▼
-Compositor: Region selection overlay
+Compositor: region selection overlay → captures → saves a PNG
     │
     ▼
-User selects region
+Compositor: runs `snip-and-sketchy <png>`
     │
+    ├─ Snip & Sketchy already running? The new launch passes the path over
+    │  $XDG_RUNTIME_DIR/snip-and-sketchy-$WAYLAND_DISPLAY.sock and exits;
+    │  the running window opens it as a tab and comes forward.
     ▼
-Compositor: Captures region → PNG bytes
-    │
-    ▼
-IPC: Send Snip { rect, image } to $VIDE_IPC
-    │
-    ▼
-Snip & Sketchy: Receives → Opens with image
-    │
-    ▼
-User marks up → Save/Copy/Share
+User marks up → Save / Copy
 ```
 
 ### Screenshot

@@ -4,8 +4,17 @@
 //!
 //! Toolbar like the original: New on the left; Ballpoint pen, Pencil, Highlighter,
 //! Eraser, Crop in the middle; Zoom, Save, Copy on the right. Ctrl+Z/Y, Ctrl+S, Ctrl+C.
+//!
+//! One process serves every snip: a second launch hands its file to the running copy over
+//! a socket and exits, and the snip opens as a tab. Six snips used to be six processes,
+//! each with its own GL context, font atlas and image loaders.
 
-use std::{io::Write, path::PathBuf};
+use std::{
+    io::{Read, Write},
+    os::unix::net::{UnixListener, UnixStream},
+    path::PathBuf,
+    sync::{Arc, mpsc},
+};
 
 use eframe::egui::{self, Color32, Pos2, Rect, RichText, Sense, Stroke, TextureHandle, Vec2};
 
@@ -28,8 +37,29 @@ const PALETTE: [Color32; 8] = [
     Color32::from_rgb(0xf7, 0x63, 0x0c),
 ];
 
+/// Where the running copy listens, per compositor so nested sessions get their own.
+fn socket_path() -> Option<PathBuf> {
+    let dir = PathBuf::from(std::env::var_os("XDG_RUNTIME_DIR")?);
+    let display = std::env::var("WAYLAND_DISPLAY").unwrap_or_default();
+    let display = display.rsplit('/').next().unwrap_or_default();
+    Some(dir.join(format!("snip-and-sketchy-{display}.sock")))
+}
+
 fn main() -> eframe::Result {
-    let file = std::env::args().nth(1).map(PathBuf::from);
+    let file = std::env::args().nth(1).map(PathBuf::from).map(|f| std::path::absolute(&f).unwrap_or(f));
+    let sock = socket_path();
+    if let Some(Ok(mut s)) = sock.as_ref().map(UnixStream::connect) {
+        // An empty line just brings the running window forward.
+        let line = file.as_ref().map(|f| f.display().to_string()).unwrap_or_default();
+        if s.write_all(format!("{line}\n").as_bytes()).is_ok() {
+            return Ok(());
+        }
+    }
+    // Nobody answered, so any socket file there is stale.
+    let listener = sock.and_then(|p| {
+        let _ = std::fs::remove_file(&p);
+        UnixListener::bind(p).ok()
+    });
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_title("Snip & Sketchy")
@@ -44,7 +74,22 @@ fn main() -> eframe::Result {
         Box::new(move |cc| {
             vide_fonts::install_egui!(eframe::egui, cc.egui_ctx);
             egui_extras::install_image_loaders(&cc.egui_ctx);
-            Ok(Box::new(App::new(&cc.egui_ctx, file)))
+            let (tx, rx) = mpsc::channel();
+            if let Some(listener) = listener {
+                let ctx = cc.egui_ctx.clone();
+                std::thread::spawn(move || {
+                    for mut stream in listener.incoming().flatten() {
+                        let mut line = String::new();
+                        let _ = stream.read_to_string(&mut line);
+                        let line = line.trim();
+                        if tx.send((!line.is_empty()).then(|| PathBuf::from(line))).is_err() {
+                            break;
+                        }
+                        ctx.request_repaint();
+                    }
+                });
+            }
+            Ok(Box::new(App::new(&cc.egui_ctx, file, rx)))
         }),
     )
 }
@@ -66,26 +111,36 @@ struct StrokeData {
     width: f32,
 }
 
-/// Straight RGBA image plus everything drawn on it.
+/// Straight RGBA image plus everything drawn on it. The pixels are shared, so an undo
+/// step for a pen stroke doesn't copy the whole screenshot.
 #[derive(Clone)]
 struct Doc {
     w: usize,
     h: usize,
-    rgba: Vec<u8>,
+    rgba: Arc<Vec<u8>>,
     strokes: Vec<StrokeData>,
 }
 
-struct App {
-    doc: Option<Doc>,
-    texture: Option<TextureHandle>,
+/// One open snip: a tab.
+struct Snip {
+    name: String,
+    doc: Doc,
+    texture: TextureHandle,
     undo: Vec<Doc>,
     redo: Vec<Doc>,
-    tool: Tool,
-    colors: [Color32; 3],
-    widths: [f32; 3],
     drawing: Option<StrokeData>,
     crop: Option<(Pos2, Pos2)>,
     zoom: Option<f32>,
+}
+
+struct App {
+    snips: Vec<Snip>,
+    cur: usize,
+    opened: usize,
+    incoming: mpsc::Receiver<Option<PathBuf>>,
+    tool: Tool,
+    colors: [Color32; 3],
+    widths: [f32; 3],
     flyout: Option<Tool>,
     status: Option<String>,
 }
@@ -104,7 +159,7 @@ fn load_png(path: &std::path::Path) -> Option<Doc> {
         png::ColorType::Grayscale => px.iter().flat_map(|&g| [g, g, g, 255]).collect(),
         png::ColorType::Indexed => return None,
     };
-    Some(Doc { w: info.width as usize, h: info.height as usize, rgba, strokes: Vec::new() })
+    Some(Doc { w: info.width as usize, h: info.height as usize, rgba: Arc::new(rgba), strokes: Vec::new() })
 }
 
 fn ipc(cmd: &str) -> bool {
@@ -115,56 +170,119 @@ fn ipc(cmd: &str) -> bool {
     }
 }
 
-impl App {
-    fn new(ctx: &egui::Context, file: Option<PathBuf>) -> Self {
-        let mut app = Self {
-            doc: None,
-            texture: None,
-            undo: Vec::new(),
-            redo: Vec::new(),
-            tool: Tool::Ballpoint,
-            colors: [PALETTE[0], Color32::from_rgb(0x55, 0x55, 0x55), Color32::from_rgba_unmultiplied(0xff, 0xf1, 0x00, 0x80)],
-            widths: [4.0, 2.0, 18.0],
-            drawing: None,
-            crop: None,
-            zoom: None,
-            flyout: None,
-            status: None,
-        };
-        if let Some(f) = file {
-            match load_png(&f) {
-                Some(doc) => app.set_doc(ctx, doc),
-                None => app.status = Some(format!("Couldn't open {}", f.display())),
-            }
-        }
-        app
-    }
+fn texture(ctx: &egui::Context, doc: &Doc) -> TextureHandle {
+    let img = egui::ColorImage::from_rgba_unmultiplied([doc.w, doc.h], &doc.rgba);
+    ctx.load_texture("snip", img, egui::TextureOptions::LINEAR)
+}
 
+impl Snip {
     fn set_doc(&mut self, ctx: &egui::Context, doc: Doc) {
-        let img = egui::ColorImage::from_rgba_unmultiplied([doc.w, doc.h], &doc.rgba);
-        self.texture = Some(ctx.load_texture("snip", img, egui::TextureOptions::LINEAR));
-        self.doc = Some(doc);
+        // Undo of a stroke keeps the same pixels; only a crop needs a new texture.
+        if !Arc::ptr_eq(&doc.rgba, &self.doc.rgba) {
+            self.texture = texture(ctx, &doc);
+        }
+        self.doc = doc;
     }
 
     fn checkpoint(&mut self) {
-        if let Some(d) = &self.doc {
-            self.undo.push(d.clone());
-            self.redo.clear();
-        }
+        self.undo.push(self.doc.clone());
+        self.redo.clear();
     }
 
     fn undo(&mut self, ctx: &egui::Context) {
-        if let (Some(prev), Some(cur)) = (self.undo.pop(), self.doc.take()) {
-            self.redo.push(cur);
+        if let Some(prev) = self.undo.pop() {
+            self.redo.push(self.doc.clone());
             self.set_doc(ctx, prev);
         }
     }
 
     fn redo(&mut self, ctx: &egui::Context) {
-        if let (Some(next), Some(cur)) = (self.redo.pop(), self.doc.take()) {
-            self.undo.push(cur);
+        if let Some(next) = self.redo.pop() {
+            self.undo.push(self.doc.clone());
             self.set_doc(ctx, next);
         }
+    }
+
+    /// The image with its markup burned in, as straight RGBA.
+    fn flatten(&self) -> (usize, usize, Vec<u8>) {
+        let d = &self.doc;
+        let mut px = (*d.rgba).clone();
+        for s in &d.strokes {
+            raster_stroke(&mut px, d.w, d.h, s);
+        }
+        (d.w, d.h, px)
+    }
+
+    fn encode(&self) -> Option<Vec<u8>> {
+        let (w, h, px) = self.flatten();
+        let mut out = Vec::new();
+        let mut enc = png::Encoder::new(&mut out, w as u32, h as u32);
+        enc.set_color(png::ColorType::Rgba);
+        enc.set_depth(png::BitDepth::Eight);
+        enc.write_header().ok()?.write_image_data(&px).ok()?;
+        Some(out)
+    }
+
+    fn apply_crop(&mut self, ctx: &egui::Context, a: Pos2, b: Pos2) {
+        let (w, h, px) = self.flatten();
+        let (x0, y0) = (a.x.min(b.x).max(0.0) as usize, a.y.min(b.y).max(0.0) as usize);
+        let (x1, y1) = ((a.x.max(b.x) as usize).min(w), (a.y.max(b.y) as usize).min(h));
+        if x1 <= x0 + 2 || y1 <= y0 + 2 {
+            return;
+        }
+        self.checkpoint();
+        let (nw, nh) = (x1 - x0, y1 - y0);
+        let mut out = Vec::with_capacity(nw * nh * 4);
+        for y in y0..y1 {
+            out.extend_from_slice(&px[(y * w + x0) * 4..(y * w + x1) * 4]);
+        }
+        self.set_doc(ctx, Doc { w: nw, h: nh, rgba: Arc::new(out), strokes: Vec::new() });
+    }
+}
+
+impl App {
+    fn new(ctx: &egui::Context, file: Option<PathBuf>, incoming: mpsc::Receiver<Option<PathBuf>>) -> Self {
+        let mut app = Self {
+            snips: Vec::new(),
+            cur: 0,
+            opened: 0,
+            incoming,
+            tool: Tool::Ballpoint,
+            colors: [PALETTE[0], Color32::from_rgb(0x55, 0x55, 0x55), Color32::from_rgba_unmultiplied(0xff, 0xf1, 0x00, 0x80)],
+            widths: [4.0, 2.0, 18.0],
+            flyout: None,
+            status: None,
+        };
+        if let Some(f) = file {
+            app.open(ctx, &f);
+        }
+        app
+    }
+
+    fn open(&mut self, ctx: &egui::Context, path: &std::path::Path) {
+        let Some(doc) = load_png(path) else {
+            self.status = Some(format!("Couldn't open {}", path.display()));
+            return;
+        };
+        self.opened += 1;
+        let texture = texture(ctx, &doc);
+        self.snips.push(Snip { name: format!("Snip {}", self.opened), doc, texture, undo: Vec::new(), redo: Vec::new(), drawing: None, crop: None, zoom: None });
+        self.cur = self.snips.len() - 1;
+        self.status = None;
+    }
+
+    fn close(&mut self, ctx: &egui::Context, i: usize) {
+        self.snips.remove(i);
+        if self.snips.is_empty() {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+        }
+        if self.cur >= i && self.cur > 0 {
+            self.cur -= 1;
+        }
+    }
+
+    fn snip(&mut self) -> Option<&mut Snip> {
+        self.snips.get_mut(self.cur)
     }
 
     fn tool_index(&self) -> usize {
@@ -175,28 +293,8 @@ impl App {
         }
     }
 
-    /// The image with its markup burned in, as straight RGBA.
-    fn flatten(&self) -> Option<(usize, usize, Vec<u8>)> {
-        let d = self.doc.as_ref()?;
-        let mut px = d.rgba.clone();
-        for s in &d.strokes {
-            raster_stroke(&mut px, d.w, d.h, s);
-        }
-        Some((d.w, d.h, px))
-    }
-
-    fn encode(&self) -> Option<Vec<u8>> {
-        let (w, h, px) = self.flatten()?;
-        let mut out = Vec::new();
-        let mut enc = png::Encoder::new(&mut out, w as u32, h as u32);
-        enc.set_color(png::ColorType::Rgba);
-        enc.set_depth(png::BitDepth::Eight);
-        enc.write_header().ok()?.write_image_data(&px).ok()?;
-        Some(out)
-    }
-
     fn save(&mut self) {
-        let Some(bytes) = self.encode() else { return };
+        let Some(bytes) = self.snip().and_then(|s| s.encode()) else { return };
         let dir = PathBuf::from(std::env::var("HOME").unwrap_or_default()).join("Pictures/Screenshots");
         let path = dir.join(chrono::Local::now().format("Annotation_%Y-%m-%d_%H-%M-%S.png").to_string());
         self.status = Some(match std::fs::create_dir_all(&dir).and_then(|_| std::fs::write(&path, bytes)) {
@@ -206,7 +304,7 @@ impl App {
     }
 
     fn copy(&mut self) {
-        let Some(bytes) = self.encode() else { return };
+        let Some(bytes) = self.snip().and_then(|s| s.encode()) else { return };
         let tmp = std::env::temp_dir().join(format!("snip-and-sketchy-{}.png", std::process::id()));
         if std::fs::write(&tmp, bytes).is_err() {
             return;
@@ -219,27 +317,11 @@ impl App {
 
     fn new_snip(&mut self, ctx: &egui::Context) {
         if ipc("snip") {
-            // The compositor opens a fresh window with the new snip.
-            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+            // Out of the way of the snip; the new snip comes back here as a tab and raises us.
+            ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(true));
         } else {
             self.status = Some("New snips need VIDE-DE (Win+Shift+S)".into());
         }
-    }
-
-    fn apply_crop(&mut self, ctx: &egui::Context, a: Pos2, b: Pos2) {
-        let Some((w, h, px)) = self.flatten() else { return };
-        let (x0, y0) = (a.x.min(b.x).max(0.0) as usize, a.y.min(b.y).max(0.0) as usize);
-        let (x1, y1) = ((a.x.max(b.x) as usize).min(w), (a.y.max(b.y) as usize).min(h));
-        if x1 <= x0 + 2 || y1 <= y0 + 2 {
-            return;
-        }
-        self.checkpoint();
-        let (nw, nh) = (x1 - x0, y1 - y0);
-        let mut out = Vec::with_capacity(nw * nh * 4);
-        for y in y0..y1 {
-            out.extend_from_slice(&px[(y * w + x0) * 4..(y * w + x1) * 4]);
-        }
-        self.set_doc(ctx, Doc { w: nw, h: nh, rgba: out, strokes: Vec::new() });
     }
 }
 
@@ -295,13 +377,32 @@ impl eframe::App for App {
         v.panel_fill = BAR;
         ctx.set_visuals(v);
 
+        // Snips handed over by later launches.
+        while let Ok(path) = self.incoming.try_recv() {
+            if let Some(path) = path {
+                self.open(&ctx, &path);
+            }
+            ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(false));
+            ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
+        }
+
         // Shortcuts.
         let pressed = |m: egui::Modifiers, k: egui::Key| ctx.input_mut(|i| i.consume_key(m, k));
         if pressed(egui::Modifiers::CTRL, egui::Key::Z) {
-            self.undo(&ctx);
+            if let Some(s) = self.snip() {
+                s.undo(&ctx);
+            }
         }
         if pressed(egui::Modifiers::CTRL, egui::Key::Y) {
-            self.redo(&ctx);
+            if let Some(s) = self.snip() {
+                s.redo(&ctx);
+            }
+        }
+        if pressed(egui::Modifiers::CTRL, egui::Key::W) && !self.snips.is_empty() {
+            self.close(&ctx, self.cur);
+        }
+        if pressed(egui::Modifiers::CTRL, egui::Key::Tab) && !self.snips.is_empty() {
+            self.cur = (self.cur + 1) % self.snips.len();
         }
         if pressed(egui::Modifiers::CTRL, egui::Key::S) {
             self.save();
@@ -342,25 +443,30 @@ impl eframe::App for App {
                         // A second click on the active pen opens its colour/size flyout.
                         self.flyout = if active && matches!(t, Tool::Ballpoint | Tool::Pencil | Tool::Highlighter) && self.flyout.is_none() { Some(t) } else { None };
                         self.tool = t;
-                        self.crop = None;
+                        if let Some(s) = self.snip() {
+                            s.crop = None;
+                        }
                     }
                 }
-                if ui.add_enabled(!self.undo.is_empty(), egui::Button::image(icon("edit-undo"))).on_hover_text("Undo (Ctrl+Z)").clicked() {
-                    self.undo(&ctx);
+                let (can_undo, can_redo) = self.snips.get(self.cur).map_or((false, false), |s| (!s.undo.is_empty(), !s.redo.is_empty()));
+                if ui.add_enabled(can_undo, egui::Button::image(icon("edit-undo"))).on_hover_text("Undo (Ctrl+Z)").clicked() {
+                    self.snip().unwrap().undo(&ctx);
                 }
-                if ui.add_enabled(!self.redo.is_empty(), egui::Button::image(icon("edit-redo"))).on_hover_text("Redo (Ctrl+Y)").clicked() {
-                    self.redo(&ctx);
+                if ui.add_enabled(can_redo, egui::Button::image(icon("edit-redo"))).on_hover_text("Redo (Ctrl+Y)").clicked() {
+                    self.snip().unwrap().redo(&ctx);
                 }
+                let open = !self.snips.is_empty();
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if ui.add_enabled(self.doc.is_some(), egui::Button::image(icon("edit-copy"))).on_hover_text("Copy (Ctrl+C)").clicked() {
+                    if ui.add_enabled(open, egui::Button::image(icon("edit-copy"))).on_hover_text("Copy (Ctrl+C)").clicked() {
                         self.copy();
                     }
-                    if ui.add_enabled(self.doc.is_some(), egui::Button::image(icon("document-save-as"))).on_hover_text("Save as (Ctrl+S)").clicked() {
+                    if ui.add_enabled(open, egui::Button::image(icon("document-save-as"))).on_hover_text("Save as (Ctrl+S)").clicked() {
                         self.save();
                     }
-                    let zoom_tip = if self.zoom.is_some() { "Fit to window" } else { "Actual size" };
-                    if ui.add_enabled(self.doc.is_some(), egui::Button::image(icon(if self.zoom.is_some() { "zoom-fit-best" } else { "zoom-in" }))).on_hover_text(zoom_tip).clicked() {
-                        self.zoom = if self.zoom.is_some() { None } else { Some(1.0) };
+                    let zoomed = self.snips.get(self.cur).is_some_and(|s| s.zoom.is_some());
+                    let zoom_tip = if zoomed { "Fit to window" } else { "Actual size" };
+                    if ui.add_enabled(open, egui::Button::image(icon(if zoomed { "zoom-fit-best" } else { "zoom-in" }))).on_hover_text(zoom_tip).clicked() {
+                        self.snip().unwrap().zoom = if zoomed { None } else { Some(1.0) };
                     }
                 });
             });
@@ -393,20 +499,46 @@ impl eframe::App for App {
             });
         }
 
+        // Tabs, once there's more than one snip.
+        if self.snips.len() > 1 {
+            let mut close = None;
+            egui::Panel::top("tabs").frame(egui::Frame::new().fill(CANVAS_BG).inner_margin(egui::Margin { left: 8, right: 8, top: 4, bottom: 0 })).show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = 2.0;
+                    for (i, s) in self.snips.iter().enumerate() {
+                        let fill = if i == self.cur { Color32::WHITE } else { CANVAS_BG };
+                        egui::Frame::new().fill(fill).corner_radius(egui::CornerRadius { nw: 4, ne: 4, sw: 0, se: 0 }).inner_margin(egui::Margin::symmetric(8, 4)).show(ui, |ui| {
+                            if ui.add(egui::Label::new(RichText::new(&s.name).color(TEXT)).sense(Sense::click())).clicked() {
+                                self.cur = i;
+                            }
+                            if ui.add(egui::Button::new(RichText::new("✕").color(DIM).size(11.0)).frame(false)).on_hover_text("Close (Ctrl+W)").clicked() {
+                                close = Some(i);
+                            }
+                        });
+                    }
+                });
+            });
+            if let Some(i) = close {
+                self.close(&ctx, i);
+            }
+        }
+
         egui::Panel::bottom("status").frame(egui::Frame::new().fill(BAR).inner_margin(egui::Margin::symmetric(10, 3))).show(ui, |ui| {
             ui.label(RichText::new(self.status.clone().unwrap_or_default()).color(DIM).size(12.0));
         });
 
         egui::CentralPanel::default().frame(egui::Frame::new().fill(CANVAS_BG)).show(ui, |ui| {
-            let Some(tex) = self.texture.clone() else {
+            let (tool, color, width) = (self.tool, self.colors[self.tool_index()], self.widths[self.tool_index()]);
+            let Some(snip) = self.snips.get_mut(self.cur) else {
                 ui.centered_and_justified(|ui| {
                     ui.label(RichText::new("Snip & Sketchy\n\nPress New (or Win+Shift+S) to snip any part of your screen.\nMark it up, then save or copy it.").color(DIM).size(16.0));
                 });
                 return;
             };
-            let doc_size = Vec2::new(self.doc.as_ref().unwrap().w as f32, self.doc.as_ref().unwrap().h as f32);
+            let tex = snip.texture.clone();
+            let doc_size = Vec2::new(snip.doc.w as f32, snip.doc.h as f32);
             let avail = ui.available_rect_before_wrap().shrink(16.0);
-            let scale = self.zoom.unwrap_or_else(|| (avail.width() / doc_size.x).min(avail.height() / doc_size.y).min(1.0));
+            let scale = snip.zoom.unwrap_or_else(|| (avail.width() / doc_size.x).min(avail.height() / doc_size.y).min(1.0));
             egui::ScrollArea::both().show(ui, |ui| {
                 let size = doc_size * scale;
                 let pad = ((ui.available_size() - size) / 2.0).max(Vec2::splat(16.0));
@@ -420,8 +552,7 @@ impl eframe::App for App {
                     let to_scr = |pt: Pos2| Pos2::new(rect.left() + pt.x * scale, rect.top() + pt.y * scale);
 
                     // Existing strokes, then the one in progress.
-                    let doc = self.doc.as_ref().unwrap();
-                    for s in doc.strokes.iter().chain(self.drawing.iter()) {
+                    for s in snip.doc.strokes.iter().chain(snip.drawing.iter()) {
                         let pts: Vec<Pos2> = s.points.iter().map(|&q| to_scr(q)).collect();
                         if pts.len() == 1 {
                             p.circle_filled(pts[0], s.width * scale / 2.0, s.color);
@@ -431,24 +562,23 @@ impl eframe::App for App {
                     }
 
                     let pointer = resp.interact_pointer_pos();
-                    match self.tool {
+                    match tool {
                         Tool::Ballpoint | Tool::Pencil | Tool::Highlighter => {
-                            if resp.drag_started() || (resp.clicked() && self.drawing.is_none()) {
+                            if resp.drag_started() || (resp.clicked() && snip.drawing.is_none()) {
                                 if let Some(pos) = pointer {
-                                    let i = self.tool_index();
-                                    self.drawing = Some(StrokeData { points: vec![to_img(pos)], color: self.colors[i], width: self.widths[i] });
+                                    snip.drawing = Some(StrokeData { points: vec![to_img(pos)], color, width });
                                 }
                             }
-                            if let (Some(s), Some(pos)) = (self.drawing.as_mut(), pointer) {
+                            if let (Some(s), Some(pos)) = (snip.drawing.as_mut(), pointer) {
                                 let q = to_img(pos);
                                 if s.points.last().is_none_or(|l| l.distance(q) > 0.75) {
                                     s.points.push(q);
                                 }
                             }
                             if resp.drag_stopped() || resp.clicked() {
-                                if let Some(s) = self.drawing.take() {
-                                    self.checkpoint();
-                                    self.doc.as_mut().unwrap().strokes.push(s);
+                                if let Some(s) = snip.drawing.take() {
+                                    snip.checkpoint();
+                                    snip.doc.strokes.push(s);
                                 }
                             }
                         }
@@ -456,23 +586,23 @@ impl eframe::App for App {
                             // Stroke eraser: touching a stroke removes the whole stroke.
                             if let Some(pos) = pointer.filter(|_| resp.dragged() || resp.clicked()) {
                                 let q = to_img(pos);
-                                let hit = self.doc.as_ref().unwrap().strokes.iter().position(|s| s.points.iter().any(|pt| pt.distance(q) < s.width / 2.0 + 6.0 / scale));
+                                let hit = snip.doc.strokes.iter().position(|s| s.points.iter().any(|pt| pt.distance(q) < s.width / 2.0 + 6.0 / scale));
                                 if let Some(i) = hit {
-                                    self.checkpoint();
-                                    self.doc.as_mut().unwrap().strokes.remove(i);
+                                    snip.checkpoint();
+                                    snip.doc.strokes.remove(i);
                                 }
                             }
                         }
                         Tool::Crop => {
                             if resp.drag_started() {
                                 if let Some(pos) = pointer {
-                                    self.crop = Some((to_img(pos), to_img(pos)));
+                                    snip.crop = Some((to_img(pos), to_img(pos)));
                                 }
                             }
-                            if let (Some(c), Some(pos)) = (self.crop.as_mut(), pointer) {
+                            if let (Some(c), Some(pos)) = (snip.crop.as_mut(), pointer) {
                                 c.1 = to_img(pos);
                             }
-                            if let Some((a, b)) = self.crop {
+                            if let Some((a, b)) = snip.crop {
                                 let r = Rect::from_two_pos(to_scr(a), to_scr(b));
                                 p.rect_filled(rect, 0.0, Color32::from_black_alpha(90));
                                 // Show the kept area undimmed: redraw that part of the image on top.
@@ -481,8 +611,8 @@ impl eframe::App for App {
                                 p.rect_stroke(r, 0.0, Stroke::new(1.5, Color32::WHITE), egui::StrokeKind::Outside);
                             }
                             if resp.drag_stopped() {
-                                if let Some((a, b)) = self.crop.take() {
-                                    self.apply_crop(&ctx, a, b);
+                                if let Some((a, b)) = snip.crop.take() {
+                                    snip.apply_crop(&ctx, a, b);
                                 }
                             }
                         }
