@@ -142,6 +142,18 @@ Edit `src/input.rs`, rebuild. Not yet configurable via settings.
 
 Deliberately custom WM in `wm.rs` — full control over stacking, layout, animations.
 
+### How much memory does it use?
+
+Measured on NVIDIA: the compositor about 125 MiB, each built-in app 45–80 MiB of RAM and
+25–30 MiB of VRAM. Snip & Sketchy keeps every snip in one window (as tabs), so six snips are
+one ~230 MiB process rather than six. Some choices that keep it there:
+
+- The egui apps use eframe's **glow** (OpenGL) renderer. The default, wgpu, opens a Vulkan
+  device per app at ~212 MiB of VRAM each.
+- Fallback fonts (CJK, Arabic...) are **memory-mapped**, so every process shares one copy, and
+  drawn with ab_glyph, which outlines a glyph only when it's used. Loaded with fontdue,
+  Noto Sans CJK alone took ~315 MiB in each process.
+
 ### Why CPU-painted UI?
 
 Simplicity, no GPU shader complexity. Cached by key — fast enough in release.

@@ -157,6 +157,10 @@ the WM in `src/wm.rs` is deliberately our own.
   grabs (Minecraft mouse-look) into these; without them the cursor escapes. Locks
   follow pointer focus and are released on Super / focus change (`release_pointer`).
 - **Brightness is a compositor overlay** (`state.dim`), since desktop monitors have no backlight.
+- **Memory adds up per process.** egui apps use eframe's `glow` feature, never the default wgpu
+  (a Vulkan device is ~212 MiB of VRAM per app on NVIDIA). Fallback fonts go through `vide-fonts`,
+  which memory-maps them and draws with ab_glyph: fontdue outlines every glyph on load, and Noto
+  Sans CJK cost 315 MiB that way. Check with `/proc/PID/smaps_rollup` (Pss) and `nvidia-smi`.
 - **Debug builds are slow** because of the CPU-painted UI; `profile.dev` sets
   `opt-level = 1`. Use release builds for real sessions.
 
