@@ -16,10 +16,14 @@ pub struct Icon {
 pub struct Icons {
     /// Icons windows hand us directly (X11 `_NET_WM_ICON`), by app_id.
     custom: HashMap<String, Icon>,
-    /// Icon name -> best file for it, across the installed themes.
-    index: HashMap<String, PathBuf>,
+    /// Icon name -> best file for it, across the installed themes, as an index into `files`.
+    /// Themes hold ~145k icons, so paths are kept as a folder number plus a file name rather
+    /// than a PathBuf each: the two sets (main and tray) took ~20 MiB the other way.
+    index: HashMap<Box<str>, u32>,
     /// Normalized (alphanumeric lowercase) icon name -> best file, for case/punctuation mismatches.
-    norm_index: HashMap<String, PathBuf>,
+    norm_index: HashMap<Box<str>, u32>,
+    files: Vec<(u32, Box<str>)>,
+    dirs: Vec<PathBuf>,
     cache: HashMap<(String, u32), Option<Rc<Icon>>>,
 }
 
@@ -86,7 +90,19 @@ impl Icons {
         }
 
         // Earlier themes win; within a theme, the best-scoring file wins.
-        let mut index: HashMap<String, (usize, i32, PathBuf)> = HashMap::new();
+        let mut dirs: Vec<PathBuf> = Vec::new();
+        let mut dir_ids: HashMap<PathBuf, u32> = HashMap::new();
+        let mut dir_id = |path: &Path| -> u32 {
+            let dir = path.parent().unwrap_or(Path::new("/"));
+            if let Some(&id) = dir_ids.get(dir) {
+                return id;
+            }
+            dirs.push(dir.to_path_buf());
+            dir_ids.insert(dir.to_path_buf(), dirs.len() as u32 - 1);
+            dirs.len() as u32 - 1
+        };
+        let file_of = |path: &Path| path.file_name().and_then(|s| s.to_str()).unwrap_or_default().into();
+        let mut index: HashMap<Box<str>, (usize, i32, u32, Box<str>)> = HashMap::new();
         for (rank, theme) in themes.iter().enumerate() {
             for base in &bases {
                 walk(&base.join(theme), 0, &mut |path| {
@@ -94,10 +110,10 @@ impl Icons {
                     let score = score(path);
                     let better = match index.get(name) {
                         None => true,
-                        Some((r, sc, _)) => rank < *r || (rank == *r && score > *sc),
+                        Some((r, sc, ..)) => rank < *r || (rank == *r && score > *sc),
                     };
                     if better {
-                        index.insert(name.to_string(), (rank, score, path.to_path_buf()));
+                        index.insert(name.into(), (rank, score, dir_id(path), file_of(path)));
                     }
                 });
             }
@@ -106,29 +122,38 @@ impl Icons {
         for pix in data_dirs().into_iter().map(|d| d.join("pixmaps")).chain(std::iter::once(PathBuf::from("/usr/share/pixmaps"))) {
             walk(&pix, 1, &mut |path| {
                 if let Some(name) = path.file_stem().and_then(|s| s.to_str()) {
-                    index.entry(name.to_string()).or_insert((rank, 0, path.to_path_buf()));
+                    if !index.contains_key(name) {
+                        index.insert(name.into(), (rank, 0, dir_id(path), file_of(path)));
+                    }
                 }
             });
         }
         tracing::info!("indexed {} icons from {:?}", index.len(), themes);
-        let mut norm_index: HashMap<String, (usize, i32, PathBuf)> = HashMap::new();
-        for (name, (r, sc, p)) in &index {
-            let k = norm_key(name);
+        let mut files = Vec::with_capacity(index.len());
+        let mut by_name = HashMap::with_capacity(index.len());
+        let mut norm_index: HashMap<Box<str>, (usize, i32, u32)> = HashMap::new();
+        for (name, (r, sc, dir, file)) in index {
+            let id = files.len() as u32;
+            files.push((dir, file));
+            let k = norm_key(&name);
+            by_name.insert(name, id);
             if k.is_empty() {
                 continue;
             }
-            let better = match norm_index.get(&k) {
+            let better = match norm_index.get(k.as_str()) {
                 None => true,
-                Some((nr, nsc, _)) => *r < *nr || (*r == *nr && *sc > *nsc),
+                Some((nr, nsc, _)) => r < *nr || (r == *nr && sc > *nsc),
             };
             if better {
-                norm_index.insert(k, (*r, *sc, p.clone()));
+                norm_index.insert(k.into(), (r, sc, id));
             }
         }
         Self {
             custom: HashMap::new(),
-            index: index.into_iter().map(|(k, (_, _, p))| (k, p)).collect(),
-            norm_index: norm_index.into_iter().map(|(k, (_, _, p))| (k, p)).collect(),
+            index: by_name,
+            norm_index: norm_index.into_iter().map(|(k, (_, _, id))| (k, id)).collect(),
+            files,
+            dirs,
             cache: HashMap::new(),
         }
     }
@@ -217,10 +242,12 @@ impl Icons {
             return p.exists().then(|| p.to_path_buf());
         }
         let lookup = |candidate: &str| -> Option<PathBuf> {
-            self.index.get(candidate).cloned().or_else(|| {
+            let id = self.index.get(candidate).or_else(|| {
                 let k = norm_key(candidate);
-                (!k.is_empty()).then(|| self.norm_index.get(&k).cloned()).flatten()
-            })
+                (!k.is_empty()).then(|| self.norm_index.get(k.as_str())).flatten()
+            })?;
+            let (dir, file) = &self.files[*id as usize];
+            Some(self.dirs[*dir as usize].join(&**file))
         };
         if let Some(hit) = lookup(name) {
             return Some(hit);
@@ -496,5 +523,19 @@ mod tests {
         let a = super::Icons::new();
         let b = super::Icons::dark();
         println!("new + dark: {:?} ({} + {} names)", t.elapsed(), a.index.len(), b.index.len());
+    }
+
+    #[test]
+    fn lookups_resolve_to_real_files() {
+        let icons = super::Icons::new();
+        for name in icons.index.keys().take(200) {
+            let path = icons.find(name).expect("indexed name resolves");
+            assert!(path.exists(), "{name} -> {path:?}");
+            assert_eq!(path.file_stem().and_then(|s| s.to_str()), Some(&**name));
+        }
+        // Case and punctuation don't matter: the normalized index finds it.
+        if let Some(name) = icons.index.keys().find(|n| n.chars().any(|c| c.is_ascii_lowercase()) && n.contains('-')) {
+            assert!(icons.find(&name.to_uppercase().replace('-', "_")).is_some(), "{name}");
+        }
     }
 }
