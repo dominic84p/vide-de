@@ -4,6 +4,10 @@
 //! (`fc-match sans-serif:charset=...`), the same choice the rest of the desktop makes, and cache
 //! the answer. Colour emoji fonts have no outlines for fontdue to draw, so their bitmaps are
 //! read directly.
+//!
+//! Fallback fonts are memory-mapped and drawn with ab_glyph, not fontdue: fontdue outlines every
+//! glyph when it loads a font, and Noto Sans CJK's 65k glyphs came to ~315 MiB per process. Mapped,
+//! the file sits once in the page cache for all our processes, and only the pages read are loaded.
 
 use std::{
     collections::HashMap,
@@ -11,12 +15,60 @@ use std::{
     sync::{Arc, Mutex, OnceLock},
 };
 
-use fontdue::{Font, FontSettings};
+use ab_glyph::{Font as _, ScaleFont as _};
+use fontdue::{Font, Metrics};
+
+/// A fallback font with outlines.
+pub struct Outline(ab_glyph::FontRef<'static>);
+
+impl Outline {
+    /// fontdue's `size` is the em in px; ab_glyph's scale is ascent minus descent.
+    fn scaled(&self, size: f32) -> ab_glyph::PxScaleFont<&ab_glyph::FontRef<'static>> {
+        let em = self.0.units_per_em().unwrap_or(1000.0);
+        self.0.as_scaled(size * self.0.height_unscaled() / em)
+    }
+
+    /// Like fontdue's `rasterize`: `size` is the em size in px, coverage rows top to bottom.
+    pub fn rasterize(&self, ch: char, size: f32) -> (Metrics, Vec<u8>) {
+        let font = self.scaled(size);
+        let id = font.glyph_id(ch);
+        let advance_width = font.h_advance(id);
+        let Some(outline) = font.outline_glyph(id.with_scale(font.scale())) else {
+            return (Metrics { advance_width, ..Default::default() }, Vec::new());
+        };
+        let b = outline.px_bounds();
+        let (width, height) = (b.width() as usize, b.height() as usize);
+        let mut cov = vec![0u8; width * height];
+        outline.draw(|x, y, c| {
+            if let Some(px) = cov.get_mut(y as usize * width + x as usize) {
+                *px = (c.clamp(0.0, 1.0) * 255.0) as u8;
+            }
+        });
+        (Metrics { xmin: b.min.x as i32, ymin: -b.max.y as i32, width, height, advance_width, ..Default::default() }, cov)
+    }
+
+    pub fn advance(&self, ch: char, size: f32) -> f32 {
+        let font = self.scaled(size);
+        font.h_advance(font.glyph_id(ch))
+    }
+}
 
 enum Loaded {
-    Outline(Font),
-    /// A bitmap (CBDT/sbix) font: the raw file and face index, parsed again to draw a glyph.
-    Color(Arc<Vec<u8>>, u32),
+    Outline(Outline),
+    /// A bitmap (CBDT/sbix) font: the file and face index, parsed again to draw a glyph.
+    Color(&'static [u8], u32),
+}
+
+fn map(path: &std::path::Path) -> Option<memmap2::Mmap> {
+    let file = std::fs::File::open(path).ok()?;
+    // SAFETY: font files aren't rewritten in place; a package update replaces them with a new
+    // inode, which leaves this mapping on the old one. fontconfig and browsers map them too.
+    unsafe { memmap2::Mmap::map(&file) }.ok()
+}
+
+/// Keep a mapped font for the life of the program.
+fn keep(mmap: memmap2::Mmap) -> &'static [u8] {
+    &Box::leak(Box::new(mmap))[..]
 }
 
 /// Fonts loaded so far (leaked: a handful at most, kept for the life of the program), and
@@ -33,20 +85,20 @@ fn registry() -> &'static Mutex<Registry> {
 }
 
 fn load(path: PathBuf, index: u32) -> Option<&'static Loaded> {
-    let bytes = std::fs::read(&path).ok()?;
-    let face = ttf_parser::Face::parse(&bytes, index).ok()?;
+    let bytes = keep(map(&path)?);
+    let face = ttf_parser::Face::parse(bytes, index).ok()?;
     let tables = face.tables();
     let loaded = if tables.glyf.is_none() && tables.cff.is_none() && (tables.cbdt.is_some() || tables.sbix.is_some()) {
-        Loaded::Color(Arc::new(bytes), index)
+        Loaded::Color(bytes, index)
     } else {
-        Loaded::Outline(Font::from_bytes(bytes, FontSettings { collection_index: index, ..Default::default() }).ok()?)
+        Loaded::Outline(Outline(ab_glyph::FontRef::try_from_slice_and_index(bytes, index).ok()?))
     };
     Some(Box::leak(Box::new(loaded)))
 }
 
 fn covers(loaded: &Loaded, ch: char) -> bool {
     match loaded {
-        Loaded::Outline(f) => f.lookup_glyph_index(ch) != 0,
+        Loaded::Outline(f) => f.0.glyph_id(ch).0 != 0,
         Loaded::Color(bytes, index) => ttf_parser::Face::parse(bytes, *index).ok().and_then(|f| f.glyph_index(ch)).is_some(),
     }
 }
@@ -91,7 +143,10 @@ fn fallback_for(ch: char) -> Option<&'static Loaded> {
 
 /// How to draw one character.
 pub enum Pick<'a> {
+    /// The primary font has it.
     Font(&'a Font),
+    /// A fallback font has it.
+    Fallback(&'static Outline),
     /// A colour emoji: draw `emoji(ch, px)`.
     Emoji,
     /// Nothing has it; draw it with the main font anyway (a box).
@@ -109,7 +164,7 @@ pub fn pick(primary: &Font, ch: char) -> Pick<'_> {
         return Pick::Font(primary);
     }
     match fallback_for(ch) {
-        Some(Loaded::Outline(f)) => Pick::Font(f),
+        Some(Loaded::Outline(f)) => Pick::Fallback(f),
         Some(Loaded::Color(..)) => Pick::Emoji,
         None => Pick::Missing,
     }
@@ -122,6 +177,7 @@ pub fn advance(primary: &Font, ch: char, size: f32) -> f32 {
     }
     match pick(primary, ch) {
         Pick::Font(f) => f.metrics(ch, size).advance_width,
+        Pick::Fallback(f) => f.advance(ch, size),
         Pick::Emoji => (size * 1.2).round(),
         Pick::Missing => primary.metrics(ch, size).advance_width,
     }
@@ -201,11 +257,11 @@ fn draw_emoji(bytes: &[u8], index: u32, ch: char, px: u32) -> Option<Emoji> {
 /// Fonts for an egui app's fallback list: one per script our UI font lacks (CJK, Arabic,
 /// Hebrew, Devanagari, Thai, symbols), as (name, file bytes, collection index). egui can't
 /// draw colour emoji, so those are left out; its own font has black-and-white ones.
-pub fn egui_fallbacks() -> Vec<(String, Vec<u8>, u32)> {
-    // Picked with ttf-parser, not through the registry: fontdue outlines every glyph up front,
-    // which for Noto CJK's 65k glyphs cost each egui app ~375 MiB of RAM it never used.
+pub fn egui_fallbacks() -> Vec<(String, &'static [u8], u32)> {
+    // Its own pick, not the registry's: egui only needs the bytes, which are mapped, so every
+    // app shares one copy in the page cache.
     let probes = ['あ', '中', '한', 'ب', 'ש', 'क', 'ก', '★', '→'];
-    let mut out: Vec<(String, Vec<u8>, u32)> = Vec::new();
+    let mut out: Vec<(String, &'static [u8], u32)> = Vec::new();
     let mut tried = std::collections::HashSet::new();
     let has = |bytes: &[u8], index: u32, ch: char| {
         ttf_parser::Face::parse(bytes, index).ok().is_some_and(|f| (f.tables().glyf.is_some() || f.tables().cff.is_some()) && f.glyph_index(ch).is_some())
@@ -220,9 +276,9 @@ pub fn egui_fallbacks() -> Vec<(String, Vec<u8>, u32)> {
             if !tried.insert((path.clone(), *index)) {
                 continue;
             }
-            let Ok(bytes) = std::fs::read(path) else { continue };
+            let Some(bytes) = map(path) else { continue };
             if has(&bytes, *index, ch) {
-                out.push((format!("vide-fallback-{}", out.len()), bytes, *index));
+                out.push((format!("vide-fallback-{}", out.len()), keep(bytes), *index));
                 break;
             }
         }
@@ -238,7 +294,7 @@ macro_rules! install_egui {
         use $egui as egui_;
         let mut fonts = egui_::FontDefinitions::default();
         for (name, bytes, index) in $crate::egui_fallbacks() {
-            let mut data = egui_::FontData::from_owned(bytes);
+            let mut data = egui_::FontData::from_static(bytes);
             data.index = index;
             fonts.font_data.insert(name.clone(), std::sync::Arc::new(data));
             for family in [egui_::FontFamily::Proportional, egui_::FontFamily::Monospace] {
@@ -273,7 +329,7 @@ mod tests {
 
     fn ui_font() -> Option<Font> {
         let bytes = std::fs::read("/usr/share/fonts/noto/NotoSans-Regular.ttf").ok()?;
-        Font::from_bytes(bytes, FontSettings::default()).ok()
+        Font::from_bytes(bytes, fontdue::FontSettings::default()).ok()
     }
 
     // These need the Noto fonts a VIDE-DE machine has; without them they check nothing.
@@ -282,8 +338,30 @@ mod tests {
         let Some(ui) = ui_font() else { return };
         assert!(matches!(pick(&ui, 'a'), Pick::Font(f) if std::ptr::eq(f, &ui)));
         if std::path::Path::new("/usr/share/fonts/noto/NotoNaskhArabic-Regular.ttf").exists() {
-            assert!(matches!(pick(&ui, 'ب'), Pick::Font(f) if !std::ptr::eq(f, &ui)), "Arabic should come from a fallback");
+            assert!(matches!(pick(&ui, 'ب'), Pick::Fallback(_)), "Arabic should come from a fallback");
         }
+    }
+
+    // ab_glyph has to place fallback glyphs where fontdue would, or mixed text jumps around.
+    #[test]
+    fn fallback_glyphs_match_fontdue() {
+        let Some(ui) = ui_font() else { return };
+        let Pick::Fallback(ours) = pick(&ui, 'あ') else { return };
+        let Ok(bytes) = std::fs::read("/usr/share/fonts/noto/NotoSans-Regular.ttf") else { return };
+        let fd = Font::from_bytes(bytes, fontdue::FontSettings::default()).unwrap();
+        // Compare on a Latin glyph both can draw: the same metric conventions, the same font.
+        let latin = Outline(ab_glyph::FontRef::try_from_slice(keep(map(std::path::Path::new("/usr/share/fonts/noto/NotoSans-Regular.ttf")).unwrap())).unwrap());
+        for ch in ['g', 'A', 'j'] {
+            let (a, ca) = latin.rasterize(ch, 20.0);
+            let b = fd.metrics(ch, 20.0);
+            assert!((a.advance_width - b.advance_width).abs() < 0.01, "{ch} advance {a:?} vs {b:?}");
+            assert!((a.xmin - b.xmin).abs() <= 1 && (a.ymin - b.ymin).abs() <= 1, "{ch} origin {a:?} vs {b:?}");
+            assert!(a.width.abs_diff(b.width) <= 1 && a.height.abs_diff(b.height) <= 1, "{ch} size {a:?} vs {b:?}");
+            assert!(ca.iter().any(|&c| c > 200), "{ch} drawn");
+        }
+        let (m, cov) = ours.rasterize('あ', 20.0);
+        assert!(m.width > 10 && m.height > 10 && m.advance_width > 15.0, "{m:?}");
+        assert!(cov.iter().any(|&c| c > 200));
     }
 
     #[test]

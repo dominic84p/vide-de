@@ -4981,7 +4981,9 @@ dependencies = [
 name = "vide-fonts"
 version = "0.1.0"
 dependencies = [
+ "ab_glyph",
  "fontdue",
+ "memmap2",
  "png 0.18.1",
  "ttf-parser",
 ]

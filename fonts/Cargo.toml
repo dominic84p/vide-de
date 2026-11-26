@@ -5,6 +5,9 @@ edition = "2024"
 description = "Font fallback (emoji, CJK, other scripts) shared by the compositor, vide-desktop and VIDE-DE's apps"
 
 [dependencies]
+# Fallback fonts: ab_glyph outlines a glyph only when it is drawn; fontdue does every glyph up front.
+ab_glyph = "0.2"
+memmap2 = "0.9"
 fontdue = "0.9.5"
 png = "0.18.1"
 ttf-parser = "0.25"

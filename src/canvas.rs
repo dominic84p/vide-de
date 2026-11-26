@@ -193,9 +193,10 @@ impl Canvas {
                 continue;
             }
             // Characters our font lacks (Japanese, emoji, Arabic...) come from a fallback font.
-            let glyph_font = match vide_fonts::pick(font, ch) {
-                vide_fonts::Pick::Font(f) => f,
-                vide_fonts::Pick::Missing => font,
+            let (m, cov) = match vide_fonts::pick(font, ch) {
+                vide_fonts::Pick::Font(f) => f.rasterize(ch, size),
+                vide_fonts::Pick::Fallback(f) => f.rasterize(ch, size),
+                vide_fonts::Pick::Missing => font.rasterize(ch, size),
                 vide_fonts::Pick::Emoji => {
                     let px = (size * 1.2).round() as u32;
                     if let Some(e) = vide_fonts::emoji(ch, px) {
@@ -206,7 +207,6 @@ impl Canvas {
                     continue;
                 }
             };
-            let (m, cov) = glyph_font.rasterize(ch, size);
             let gx = pen.round() as i32 + m.xmin;
             let gy = (baseline - m.height as f32 - m.ymin as f32).round() as i32;
             for row in 0..m.height {
