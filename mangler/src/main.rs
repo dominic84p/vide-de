@@ -2155,10 +2155,23 @@ impl eframe::App for Mangler {
 
         // Del ends the selected task, F5 refreshes, Ctrl+Tab cycles tabs.
         if !ctx.egui_wants_keyboard_input() {
-            if ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, Key::Delete))
-                && let Some(r) = self.selected_row()
-            {
-                self.end_task(&r);
+            // Only on tabs that show a selection: `selected` outlives a tab switch, so on
+            // Performance or Services Del would otherwise end a process the user can't see.
+            if ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, Key::Delete)) {
+                match self.tab {
+                    Tab::Processes | Tab::Users => {
+                        if let Some(r) = self.selected_row() {
+                            self.end_task(&r);
+                        }
+                    }
+                    Tab::Details => {
+                        if let Some(pid) = self.details.selected {
+                            let name = self.procs.get(&(pid as u32)).map(|p| p.name.clone()).unwrap_or_default();
+                            self.kill(&[pid as u32], &name);
+                        }
+                    }
+                    _ => {}
+                }
             }
             if ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, Key::F5)) {
                 self.refresh();
