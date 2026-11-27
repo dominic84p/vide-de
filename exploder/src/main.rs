@@ -484,7 +484,9 @@ impl Exploder {
                 SortBy::Kind => a.kind.cmp(&b.kind),
                 SortBy::Size => a.size.cmp(&b.size),
                 SortBy::Location => a.location.cmp(&b.location),
-            });
+            })
+            // Ties (same kind, size, date) by name, or they keep read_dir's arbitrary order.
+            .then_with(|| natural_cmp(&a.name, &b.name));
             if asc || a.is_dir != b.is_dir { ord } else { ord.reverse() }
         });
         self.select_paths(&keep);
