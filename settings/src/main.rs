@@ -295,6 +295,9 @@ const SEARCH_INDEX: &[SearchItem] = &[
 pub struct Settings {
     pub page: Option<(Category, SubPage)>,
     pub config: Config,
+    /// The settings file's mtime as we last saw it: the compositor writes it too (Action
+    /// Center's Night light), and saving a stale copy would undo that.
+    pub config_mtime: Option<std::time::SystemTime>,
     pub system: System,
     pub search: String,
     pub custom_wall: String,
@@ -309,6 +312,17 @@ pub struct Settings {
 impl Settings {
     fn save(&mut self) {
         self.error = self.config.save().err().map(|e| format!("Could not save settings: {e}"));
+        self.config_mtime = Config::mtime();
+    }
+
+    /// Pick up changes made outside Settings, checked about once a second.
+    fn reload_if_changed(&mut self, ctx: &egui::Context) {
+        let mtime = Config::mtime();
+        if mtime != self.config_mtime {
+            self.config_mtime = mtime;
+            self.config = Config::load();
+        }
+        ctx.request_repaint_after(std::time::Duration::from_secs(1));
     }
 
     fn navigate(&mut self, cat: Category, sub: SubPage) {
@@ -528,6 +542,7 @@ impl Settings {
 impl eframe::App for Settings {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         apply_doze_style(ui.ctx());
+        self.reload_if_changed(ui.ctx());
         match self.page {
             None => self.render_home(ui),
             Some((cat, sub)) => self.render_category(ui, cat, sub),
@@ -562,6 +577,7 @@ fn load_icon() -> Option<egui::IconData> {
 
 fn main() -> eframe::Result<()> {
     let page = parse_cli_page();
+    let config_mtime = Config::mtime();
     let config = Config::load();
     let custom_wall = if config.wallpaper == PathBuf::default() {
         String::new()
@@ -584,6 +600,7 @@ fn main() -> eframe::Result<()> {
             Ok(Box::new(Settings {
                 page,
                 config,
+                config_mtime,
                 system: System::default(),
                 search: String::new(),
                 custom_wall,
