@@ -358,6 +358,8 @@ impl Wm {
         self.windows.retain(|w| w.surface() != surface);
         if self.grab.as_ref().is_some_and(|g| g.surface() == surface) {
             self.grab = None;
+            // The outline belongs to the drag; with no grab nothing would ever clear it.
+            self.snap_preview = None;
         }
     }
 
