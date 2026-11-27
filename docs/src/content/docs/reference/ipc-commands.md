@@ -24,6 +24,8 @@ One **newline-terminated plain-text command** per connection.
 | `screen-info` | — | Reply with `<width> <height>` of the output |
 | `screencast-start` | — | Increment active screencast client count and redraw |
 | `screencast-stop` | — | Decrement active screencast client count |
+| `emoji` | `<text>` | Emoji Panic's pick: typed into the app `Super+.` was pressed in. Accepted once per `Super+.` press (within a few minutes of it), so it can't be used to make apps paste at will |
+| `remote-begin` | `<app name>` | RemoteDesktop portal only: refused unless the peer is our supervised `vide-portal`, after the user allowed remote control. Replies `ok`; the connection then stays open and carries that session's input (`remote.rs`) |
 
 ## Test-Only Commands (`VIBE_TEST_INPUT=1`)
 

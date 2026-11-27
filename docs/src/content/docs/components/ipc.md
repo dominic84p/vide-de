@@ -1,129 +1,52 @@
 ---
 title: 'IPC Socket (ipc.rs)'
-description: 'Control socket for snip, screenshot, copy-png commands'
+description: 'Control socket for things only the compositor can do'
 ---
 
 # IPC Socket (`ipc.rs`)
 
-Unix domain socket at `$VIDE_IPC` (default `~/.local/share/vide-de/ipc.sock`) for external control.
+A Unix domain socket for our own apps, for things only the compositor can do (capture the
+screen, put a PNG on the clipboard, list and focus windows). The full command list is in the
+[IPC Commands reference](/vide-de/reference/ipc-commands/).
+
+## Where it is
+
+`ipc::start` binds `$XDG_RUNTIME_DIR/vide-de-<socket name>.sock` (e.g. `vide-de-wayland-0.sock`)
+and exports the path to clients as `$VIDE_IPC`. If binding fails the socket is just disabled
+with a warning; nothing else depends on it.
 
 ## Protocol
 
-```rust
-// Client → Compositor
-enum IpcCommand {
-    Snip { rect: Option<Rectangle> },           // Start region snip
-    Screenshot { output: Option<String> },      // Fullscreen screenshot
-    CopyPng { path: PathBuf },                  // Copy PNG to clipboard
-    GetVersion,                                 // Get compositor version
-    GetWindows,                                 // List windows
-    SetWorkspace { idx: usize },                // Switch workspace
-    Launch { desktop_id: String },              // Launch app
-}
+Plain text, **one newline-terminated command per connection**: `command [argument]`. The
+compositor reads one line (200 ms timeout, so a stuck client can't block the main loop),
+acts on it, writes a reply for the commands that have one (`windows`, `screen-info`,
+`pointer-pos`, ...) and hangs up. Unknown commands are logged and ignored.
 
-// Compositor → Client (responses)
-enum IpcResponse {
-    Ok { data: Option<Value> },
-    Err { code: i32, message: String },
-    Event { name: String, data: Value },        // Async events
-}
-```
+The exception is `remote-begin`: after replying `ok` the connection stays open and carries a
+RemoteDesktop portal session's input, and only our own `vide-portal` may open one.
 
-## Wire Format (JSON Lines)
-
-```json
-// Request
-{"cmd": "snip", "rect": null}
-
-// Response
-{"ok": true, "data": null}
-
-// Event (async)
-{"event": "window_created", "data": {"id": 42, "title": "Firefox"}}
-```
-
-## Server Implementation
-
-```rust
-struct IpcServer {
-    listener: UnixListener,
-    sender: mpsc::Sender<IpcCommand>,
-}
-
-impl IpcServer {
-    fn accept_loop(&mut self) {
-        for stream in self.listener.incoming() {
-            let mut stream = stream?;
-            let (rd, wr) = stream.split();
-            
-            // Read JSON lines
-            let reader = BufReader::new(rd);
-            for line in reader.lines() {
-                let cmd: IpcCommand = serde_json::from_str(&line)?;
-                self.sender.send(cmd)?;
-            }
-        }
-    }
-}
-```
-
-## Client Usage
+## Client usage
 
 ```bash
-# Start region snip
-echo '{"cmd": "snip"}' | socat - UNIX-CONNECT:$VIDE_IPC
-
-# Fullscreen screenshot
-echo '{"cmd": "screenshot"}' | socat - UNIX-CONNECT:$VIDE_IPC
-
-# Copy PNG to clipboard
-echo '{"cmd": "copy-png", "path": "/tmp/shot.png"}' | socat - UNIX-CONNECT:$VIDE_IPC
-
-# Get version
-echo '{"cmd": "get-version"}' | socat - UNIX-CONNECT:$VIDE_IPC
-```
-
-## Snip Flow
-
-```
-User presses Win+Shift+S
-       │
-       ▼
-input.rs: start_region_snip()
-       │
-       ▼
-render.rs: show snip overlay (dim + selection)
-       │
-       ▼
-User selects region
-       │
-       ▼
-screenshot.rs: capture region → PNG bytes
-       │
-       ▼
-IPC: send Snip { rect, image } to $VIDE_IPC
-       │
-       ▼
-snip-and-sketchy receives → opens with image
-```
-
-## Environment Variable
-
-```bash
-# Default: ~/.local/share/vide-de/ipc.sock
-export VIDE_IPC=/custom/path/ipc.sock
+echo snip | socat - UNIX-CONNECT:$VIDE_IPC
+echo screenshot | socat - UNIX-CONNECT:$VIDE_IPC
+echo "copy-png /tmp/shot.png" | socat - UNIX-CONNECT:$VIDE_IPC
+echo windows | socat - UNIX-CONNECT:$VIDE_IPC
 ```
 
 ## Security
 
-- Socket permissions: `0600` (user only)
-- No authentication (local user only)
-- Commands limited to compositor actions
-- No arbitrary code execution
+- The socket lives in `$XDG_RUNTIME_DIR`, which only the user can access.
+- Input injection (`pointer-*`, `key`, `type`), `screenshot <path>`, `popups` and `stall` are
+  refused unless the compositor was started with `VIBE_TEST_INPUT=1` (as `scripts/nested-test.sh`
+  does). A normal session never exposes them.
+- `emoji` is accepted once per `Super+.` press, so it can't make apps paste at will.
+- `remote-begin` checks the peer's PID against the supervised `vide-portal`.
 
 ## Related Files
 
-- `screenshot.rs` — Snip/screenshot implementation
-- `snip/` — Receives snip via IPC
-- `main.rs` — IPC server startup
-- `state.rs` — Command handling
+- `screenshot.rs`: snip and screenshot capture
+- `snip/`: Snip & Sketchy, which sends `snip` and `copy-png`
+- `mangler/`: Task Mangler, which uses `windows`, `focus-window`, `close-window`
+- `emoji/`: Emoji Panic, which sends `emoji`
+- `remote.rs`: the remote-control session behind `remote-begin`

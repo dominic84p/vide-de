@@ -13,7 +13,7 @@ Complete reference for `~/.config/vide-de/settings.conf` as defined in `config/s
 |---|---|---|---|
 | `wallpaper` | path | `~/.local/share/vide-de/wallpapers/bloom.png` | Desktop wallpaper image (drawn by `vide-desktop`) |
 | `display_mode` | string | `""` | Monitor mode as `WIDTHxHEIGHT@HZ` (e.g. `2560x1440@144`); empty = monitor's preferred mode. Applied live in TTY mode |
-| `display_scale` | float | `1.0` | UI scale, fractional allowed (`1.0` = 100%, `1.5` = 150%; 1.0–3.0). Applied live |
+| `display_scale` | float | `1.0` | UI scale, fractional allowed (`1.0` = 100%, `1.5` = 150%; clamped to 0.5–3.0). Applied live |
 | `night_light` | bool | `false` | Warm the screen to cut blue light |
 | `night_light_strength` | float | `0.5` | Night light warmth (`0.0` to `1.0`) |
 | `direct_scanout` | bool | `false` | Ultra Performance Mode: bypass compositing for fullscreen apps (off by default for NVIDIA stability) |
@@ -28,6 +28,10 @@ Complete reference for `~/.config/vide-de/settings.conf` as defined in `config/s
 | `notification_sound_apps` | string | (empty) | Per-app notification sound, as `app=always;other=never`. An app is its `desktop-entry` hint (e.g. `com.anthropic.Claude`) or else its app name. `always` plays the sound even when the app sends `suppress-sound` (the Claude app always does); `never` keeps it quiet; apps not listed get the app's choice. Settings lists every app that has notified you (kept in `~/.local/share/vide-de/notification-apps`) |
 | `animations` | bool | `true` | Windoze's "Show animations": windows zoom open, fly into the taskbar when minimized and glide when maximized or snapped; Start, the Action Center, toasts, flyouts, menus, Alt+Tab and Task View slide, grow or fade in and out; switching desktops slides. All 130–260 ms, and input never waits for them. Applies live |
 | `clock_24h` | bool | `false` | Display the taskbar clock in 24-hour time (`14:30` instead of `2:30 PM`) |
+| `icon_theme` | string | (empty) | Icon theme for our shell and apps, by folder name (e.g. `Win11`, `vide`); empty = the system's (KDE's, else Breeze) |
+| `theme_system_icons` | bool | `false` | Draw the taskbar's system icons (Wi-Fi, volume, brightness, Action Center) from `icon_theme` instead of VIDE's own glyphs, where the theme has them |
+| `windows_larp` | bool | `false` | "Windows larp mode": the Start button shows the Windoze logo from an installed icon theme (Windows 10, Win11) instead of VIDE's. VIDE doesn't ship Microsoft's logo |
+| `inline_tray` | bool | `false` | "Remove tray overflow": apps' tray icons sit on the taskbar itself instead of in the grid behind the overflow chevron |
 | `light_mode` | bool | `false` | Windoze 10's "default Windoze mode": light taskbar, Start, Action Center, flyouts and menus instead of dark. Applies live |
 | `notification_sound` | string | `ding` | Sound for a new notification: `ding`, `chime`, `pop`, `bell`, `glass`, `aurora`, `marimba`, `crystal`, `kalimba`, `harp`, `zen`, `droplet`, `orbit`, `misery`, one of your own as `custom:<file name>` (a file in `~/.local/share/vide-de/sounds/custom/`), or `none`. Quiet in Focus assist; an app's own `sound-file` hint wins, `suppress-sound` silences it |
 
